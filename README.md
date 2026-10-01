@@ -2,7 +2,7 @@
 
 # SigLens
 
-### Windows Artifact Analysis & Multi-Engine Security Scanner
+### Windows Artifact Analysis
 
 **Created by St0rn / CybersecurIT**
 
