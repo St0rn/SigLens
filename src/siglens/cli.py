@@ -304,109 +304,775 @@ def component_scan_command(
     console.print(f"[green]JSON:[/green] {out}")
 
 
-@app.command("window-scan")
+@app.command("narrow")
 def window_scan_command(
-    file: Path = typer.Argument(..., dir_okay=False),
-    engines: Path = typer.Option(Path("engines.json"), "--engines", help="AV engine configuration JSON"),
-    window_size_kib: int = typer.Option(
-        DEFAULT_WINDOW_KIB,
-        "--window-size",
-        help=f"Fixed window size in KiB (minimum: {MIN_WINDOW_KIB})",
+    file: Path = typer.Argument(
+        ...,
+        dir_okay=False,
     ),
-    max_windows: int = typer.Option(2048, "--max-windows", min=1, max=10000),
+    engines: Path = typer.Option(
+        Path("engines.json"),
+        "--engines",
+        help="AV engine configuration JSON",
+    ),
+    max_windows: int = typer.Option(
+        2048,
+        "--max-windows",
+        min=1,
+        max=10000,
+        help="Maximum number of AV scans performed during narrowing",
+    ),
 ):
-    """Scan fixed non-overlapping file windows with enabled AV engines."""
-    if window_size_kib < MIN_WINDOW_KIB:
-        raise typer.BadParameter(
-            f"--window-size must be at least {MIN_WINDOW_KIB} KiB"
+    """
+    Locate a reproducible AV detection boundary using prefix narrowing.
+
+    The complete file is scanned first. Prefixes of varying lengths are then
+    scanned to identify a bounded CLEAN -> DETECTED transition.
+
+    The resulting boundary is inferred from repeated scans. It is not a native
+    byte offset supplied by the AV engine.
+    """
+
+    # ------------------------------------------------------------------
+    # Display helpers
+    # ------------------------------------------------------------------
+
+    def fmt_hex(value, width: int = 8) -> str:
+        if value is None:
+            return "-"
+
+        try:
+            return f"0x{int(value):0{width}X}"
+        except Exception:
+            return str(value)
+
+    def extract_ascii_strings(
+        blob: bytes,
+        min_length: int = 4,
+    ) -> list[str]:
+
+        result = []
+        current = bytearray()
+
+        for byte in blob:
+            if 32 <= byte <= 126:
+                current.append(byte)
+
+            else:
+                if len(current) >= min_length:
+                    result.append(
+                        current.decode(
+                            "ascii",
+                            errors="ignore",
+                        )
+                    )
+
+                current = bytearray()
+
+        if len(current) >= min_length:
+            result.append(
+                current.decode(
+                    "ascii",
+                    errors="ignore",
+                )
+            )
+
+        return result
+
+    def extract_utf16le_strings(
+        blob: bytes,
+        min_length: int = 4,
+    ) -> list[str]:
+
+        result = []
+        current = bytearray()
+        index = 0
+
+        while index + 1 < len(blob):
+
+            first = blob[index]
+            second = blob[index + 1]
+
+            if 32 <= first <= 126 and second == 0:
+                current.extend(
+                    (
+                        first,
+                        second,
+                    )
+                )
+
+            else:
+                if len(current) >= min_length * 2:
+                    result.append(
+                        current.decode(
+                            "utf-16le",
+                            errors="ignore",
+                        )
+                    )
+
+                current = bytearray()
+
+            index += 2
+
+        if len(current) >= min_length * 2:
+            result.append(
+                current.decode(
+                    "utf-16le",
+                    errors="ignore",
+                )
+            )
+
+        return result
+
+    def print_hexdump(
+        blob: bytes,
+        base_offset: int,
+    ) -> None:
+
+        for relative in range(
+            0,
+            len(blob),
+            16,
+        ):
+
+            chunk = blob[
+                relative:relative + 16
+            ]
+
+            hex_part = " ".join(
+                f"{byte:02x}"
+                for byte in chunk
+            )
+
+            ascii_part = "".join(
+                chr(byte)
+                if 32 <= byte <= 126
+                else "."
+                for byte in chunk
+            )
+
+            console.print(
+                f"{base_offset + relative:08x}  "
+                f"{hex_part:<47}  "
+                f"|{ascii_part}|"
+            )
+
+    def detected_by_text(row: dict) -> str:
+
+        detected_by = row.get(
+            "detected_by",
+            [],
         )
 
-    file, data, _ = _open_input_or_exit(file)
-    engines = normalize_path(engines)
+        if isinstance(
+            detected_by,
+            (list, tuple),
+        ):
+            return (
+                ", ".join(
+                    str(item)
+                    for item in detected_by
+                )
+                if detected_by
+                else "-"
+            )
+
+        return (
+            str(detected_by)
+            if detected_by
+            else "-"
+        )
+
+    # ------------------------------------------------------------------
+    # Input
+    # ------------------------------------------------------------------
+
+    file, data, _ = _open_input_or_exit(
+        file
+    )
+
+    engines = normalize_path(
+        engines
+    )
+
+    # ------------------------------------------------------------------
+    # Run scanner
+    # ------------------------------------------------------------------
 
     try:
+
         result = window_scan(
             file,
             engines,
             data,
-            window_kib=window_size_kib,
             max_windows=max_windows,
         )
+
     except Exception as exc:
-        console.print(f"[red]Window scan error:[/red] {type(exc).__name__}: {exc}")
-        raise typer.Exit(code=2)
 
-    table = Table(
-        title=f"SigLens - Fixed Window Scan "
-              f"({result['window_kib']} KiB)"
-    )
-    table.add_column("#", justify="right")
-    table.add_column("Start")
-    table.add_column("End")
-    table.add_column("Section")
-    table.add_column("RVA")
-    table.add_column("VA")
-    table.add_column("Entropy")
-    table.add_column("Detected by")
-
-    for row in result.get("windows", []):
-        detected = [
-            engine.get("name")
-            for engine in row.get("engines", [])
-            if engine.get("status") == "detected"
-        ]
-        table.add_row(
-            str(row.get("index")),
-            hex(row.get("offset", 0)),
-            hex(row.get("end", 0)),
-            str(row.get("section") or "-"),
-            row.get("rva_hex") or "-",
-            row.get("va_hex") or "-",
-            str(row.get("entropy")),
-            ", ".join(detected) if detected else "-",
+        console.print(
+            "[red]Window scan error:[/red] "
+            f"{type(exc).__name__}: {exc}"
         )
 
-    console.print(table)
+        raise typer.Exit(
+            code=2
+        )
 
-    for row in result.get("windows", []):
-        if not row.get("detected") or not row.get("context"):
-            continue
-        context = row["context"]
-        preview = context.get("preview", {})
-        hits = [e.get("name") for e in row.get("engines", []) if e.get("status") == "detected"]
-        console.print(Panel(
-            "\n".join([
-                f"Window       : #{row.get('index')}",
-                f"Detected by  : {', '.join(hits) if hits else '-'}",
-                f"Offset       : {context.get('offset_hex')}",
-                f"Section      : {context.get('section') or '-'}",
-                f"RVA          : {context.get('rva_hex') or '-'}",
-                f"VA           : {context.get('va_hex') or '-'}",
-                f"Image base   : {context.get('image_base_hex') or '-'}",
-                f"Preview      : {preview.get('start_hex')} -> {preview.get('end_hex')} ({preview.get('size', 0)} bytes)",
-            ]),
-            title=f"[red]Detected window #{row.get('index')} context[/red]",
-            border_style="red",
-        ))
-        console.print("[bold]Hexdump (256 bytes from fixed window start)[/bold]")
-        for line in preview.get("hexdump", []):
-            console.print(line)
-        a = preview.get("ascii_strings", [])
-        u = preview.get("utf16le_strings", [])
-        console.print("[bold]ASCII strings:[/bold] " + (", ".join(repr(x) for x in a) if a else "-"))
-        console.print("[bold]UTF-16LE strings:[/bold] " + (", ".join(repr(x) for x in u) if u else "-"))
+    # ------------------------------------------------------------------
+    # Metadata
+    # ------------------------------------------------------------------
 
-    console.print(
-        f"[dim]{result['window_count']} fixed, non-overlapping windows; "
-        f"default/minimum size is {MIN_WINDOW_KIB} KiB; "
-        f"detected-window context preview is {result.get('context_preview_bytes', 256)} bytes; "
-        "no adaptive refinement.[/dim]"
+    classification = result.get(
+        "classification",
+        "UNKNOWN",
     )
 
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    out = Path.cwd() / "reports" / f"windows-{file.stem}-{stamp}.json"
-    save_json(result, out)
-    console.print(f"[green]JSON:[/green] {out}")
+    rows = result.get(
+        "windows",
+        [],
+    )
+
+    candidates = result.get(
+        "candidates",
+        [],
+    )
+
+    scan_count = result.get(
+        "scan_count",
+        len(rows),
+    )
+
+    preview_bytes = result.get(
+        "context_preview_bytes",
+        256,
+    )
+
+    try:
+        preview_bytes = max(
+            16,
+            int(preview_bytes),
+        )
+    except Exception:
+        preview_bytes = 256
+
+    # ------------------------------------------------------------------
+    # Summary
+    # ------------------------------------------------------------------
+
+    console.print()
+
+    console.print(
+        "[bold cyan]"
+        "SigLens - Detection Boundary Narrowing"
+        "[/bold cyan]"
+    )
+
+    console.print(
+        f"File           : {file}"
+    )
+
+    console.print(
+        f"File size      : {len(data)} bytes"
+    )
+
+    console.print(
+        f"Classification : {classification}"
+    )
+
+    console.print(
+        f"Scans          : {scan_count}"
+    )
+
+    console.print(
+        f"Context preview: {preview_bytes} bytes"
+    )
+
+    console.print()
+
+    # ------------------------------------------------------------------
+    # Prefix scan trace
+    # ------------------------------------------------------------------
+
+    trace_table = Table(
+        title="Prefix narrowing trace",
+    )
+
+    trace_table.add_column(
+        "#",
+        justify="right",
+    )
+
+    trace_table.add_column(
+        "Depth",
+        justify="right",
+    )
+
+    trace_table.add_column(
+        "Type",
+    )
+
+    trace_table.add_column(
+        "Prefix start",
+    )
+
+    trace_table.add_column(
+        "Prefix end",
+    )
+
+    trace_table.add_column(
+        "Size",
+        justify="right",
+    )
+
+    trace_table.add_column(
+        "Boundary section",
+    )
+
+    trace_table.add_column(
+        "Entropy",
+    )
+
+    trace_table.add_column(
+        "Status",
+    )
+
+    trace_table.add_column(
+        "Detected by",
+    )
+
+    for row in rows:
+
+        index = int(
+            row.get(
+                "index",
+                0,
+            )
+        )
+
+        depth = int(
+            row.get(
+                "depth",
+                0,
+            )
+        )
+
+        branch = str(
+            row.get(
+                "branch",
+                "-",
+            )
+        )
+
+        start = int(
+            row.get(
+                "start",
+                row.get(
+                    "offset",
+                    0,
+                ),
+            )
+        )
+
+        end = int(
+            row.get(
+                "end",
+                row.get(
+                    "end_offset",
+                    start,
+                ),
+            )
+        )
+
+        size = int(
+            row.get(
+                "size",
+                max(
+                    0,
+                    end - start,
+                ),
+            )
+        )
+
+        detected = bool(
+            row.get(
+                "detected",
+                False,
+            )
+        )
+
+        section = (
+            row.get(
+                "section"
+            )
+            or "-"
+        )
+
+        entropy_value = row.get(
+            "entropy"
+        )
+
+        if isinstance(
+            entropy_value,
+            (int, float),
+        ):
+            entropy_text = (
+                f"{entropy_value:.4f}"
+            )
+        else:
+            entropy_text = "-"
+
+        if detected:
+            status = (
+                "[red]DETECTED[/red]"
+            )
+        else:
+            status = (
+                "[green]CLEAN[/green]"
+            )
+
+        trace_table.add_row(
+            str(index),
+            str(depth),
+            branch,
+            f"0x{start:08X}",
+            f"0x{end:08X}",
+            str(size),
+            section,
+            entropy_text,
+            status,
+            detected_by_text(row),
+        )
+
+    console.print(
+        trace_table
+    )
+
+    # ------------------------------------------------------------------
+    # Candidate boundaries
+    # ------------------------------------------------------------------
+
+    for candidate_index, candidate in enumerate(
+        candidates
+    ):
+
+        console.print()
+
+        boundary_low = candidate.get(
+            "boundary_low"
+        )
+
+        boundary_high = candidate.get(
+            "boundary_high"
+        )
+
+        boundary_size = candidate.get(
+            "boundary_size"
+        )
+
+        # Fallback for older result format.
+        if boundary_low is None:
+            boundary_low = candidate.get(
+                "start",
+                candidate.get(
+                    "offset",
+                    0,
+                ),
+            )
+
+        if boundary_high is None:
+            boundary_high = candidate.get(
+                "end",
+                candidate.get(
+                    "end_offset",
+                    boundary_low,
+                ),
+            )
+
+        boundary_low = int(
+            boundary_low
+        )
+
+        boundary_high = int(
+            boundary_high
+        )
+
+        if boundary_size is None:
+            boundary_size = max(
+                0,
+                boundary_high - boundary_low,
+            )
+
+        boundary_size = int(
+            boundary_size
+        )
+
+        candidate_classification = str(
+            candidate.get(
+                "classification",
+                "CANDIDATE_REGION",
+            )
+        )
+
+        console.print(
+            f"[bold cyan]"
+            f"Detection boundary #{candidate_index}"
+            f"[/bold cyan]"
+        )
+
+        console.print(
+            f"Classification : {candidate_classification}"
+        )
+
+        console.print(
+            f"Last CLEAN      : 0x{boundary_low:08X}"
+        )
+
+        console.print(
+            f"First DETECTED  : 0x{boundary_high:08X}"
+        )
+
+        console.print(
+            f"Interval        : {boundary_size} bytes"
+        )
+
+        console.print(
+            f"Detected by     : {detected_by_text(candidate)}"
+        )
+
+        reason = candidate.get(
+            "reason"
+        )
+
+        if reason:
+            console.print(
+                f"Reason          : {reason}"
+            )
+
+        console.print()
+
+        console.print(
+            "[yellow]"
+            "The CLEAN -> DETECTED boundary is inferred from prefix scans. "
+            "It is not an offset supplied directly by the AV engine."
+            "[/yellow]"
+        )
+
+        # --------------------------------------------------------------
+        # PE mapping
+        # --------------------------------------------------------------
+
+        section = candidate.get(
+            "section"
+        )
+
+        rva = candidate.get(
+            "rva"
+        )
+
+        va = candidate.get(
+            "va"
+        )
+
+        image_base = candidate.get(
+            "image_base"
+        )
+
+        console.print()
+
+        console.print(
+            "[bold]Boundary mapping[/bold]"
+        )
+
+        console.print(
+            f"Boundary       : 0x{boundary_high:08X}"
+        )
+
+        console.print(
+            f"Section        : {section or '-'}"
+        )
+
+        console.print(
+            f"RVA            : {fmt_hex(rva)}"
+        )
+
+        console.print(
+            f"VA             : {fmt_hex(va)}"
+        )
+
+        console.print(
+            f"Image base     : {fmt_hex(image_base)}"
+        )
+
+        # --------------------------------------------------------------
+        # Hexdump around inferred boundary
+        # --------------------------------------------------------------
+
+        #
+        # Half before / half after boundary.
+        #
+
+        half_preview = max(
+            8,
+            preview_bytes // 2,
+        )
+
+        preview_start = max(
+            0,
+            boundary_high - half_preview,
+        )
+
+        preview_end = min(
+            len(data),
+            boundary_high + half_preview,
+        )
+
+        preview = data[
+            preview_start:preview_end
+        ]
+
+        if preview:
+
+            console.print()
+
+            console.print(
+                "[bold]"
+                f"Hexdump around inferred boundary "
+                f"({len(preview)} bytes)"
+                "[/bold]"
+            )
+
+            console.print(
+                f"Preview        : "
+                f"0x{preview_start:08X} -> "
+                f"0x{preview_end:08X}"
+            )
+
+            console.print(
+                f"Offset       : "
+                f"0x{boundary_high:08X}"
+            )
+
+            console.print()
+
+            print_hexdump(
+                preview,
+                preview_start,
+            )
+
+            # ----------------------------------------------------------
+            # Strings
+            # ----------------------------------------------------------
+
+            ascii_strings = (
+                extract_ascii_strings(
+                    preview
+                )
+            )
+
+            utf16_strings = (
+                extract_utf16le_strings(
+                    preview
+                )
+            )
+
+            console.print()
+
+            console.print(
+                "ASCII strings   : "
+                + (
+                    " | ".join(
+                        ascii_strings
+                    )
+                    if ascii_strings
+                    else "-"
+                )
+            )
+
+            console.print(
+                "UTF-16LE strings: "
+                + (
+                    " | ".join(
+                        utf16_strings
+                    )
+                    if utf16_strings
+                    else "-"
+                )
+            )
+
+    # ------------------------------------------------------------------
+    # No candidate
+    # ------------------------------------------------------------------
+
+    if not candidates:
+
+        console.print()
+
+        if classification == "CLEAN":
+
+            console.print(
+                "[green]"
+                "The complete file was not detected. "
+                "No boundary narrowing was required."
+                "[/green]"
+            )
+
+        elif classification == "SCAN_LIMIT_REACHED":
+
+            console.print(
+                "[yellow]"
+                "The scan limit was reached before a candidate "
+                "boundary could be retained."
+                "[/yellow]"
+            )
+
+        else:
+
+            console.print(
+                f"Narrowing result: {classification}"
+            )
+
+    # ------------------------------------------------------------------
+    # Statistics
+    # ------------------------------------------------------------------
+
+    detected_count = sum(
+        1
+        for row in rows
+        if row.get(
+            "detected"
+        )
+    )
+
+    clean_count = sum(
+        1
+        for row in rows
+        if not row.get(
+            "detected"
+        )
+    )
+
+    console.print()
+
+    console.print(
+        f"Regions scanned : {len(rows)}"
+    )
+
+    console.print(
+        f"Detected scans  : {detected_count}"
+    )
+
+    console.print(
+        f"Clean scans     : {clean_count}"
+    )
+
+    console.print(
+        f"Candidates      : {len(candidates)}"
+    )
+
+    console.print(
+        f"Classification  : {classification}"
+    )
 
 
 @app.command("inspect-offset")

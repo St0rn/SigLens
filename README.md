@@ -2,11 +2,11 @@
 
 # SigLens
 
-### Windows Artifact Analysis
+### Windows Artifact Analysis & Multi-Engine Security Scanner
 
 **Created by St0rn / CybersecurIT**
 
-Static PE analysis, YARA correlation, Windows AMSI, multi-engine AV scanning, PDB/source mapping, fixed-window attribution, structural script analysis and forensic reporting.
+Static PE analysis, YARA correlation, Windows AMSI, multi-engine AV scanning, PDB/source mapping, prefix-based detection-boundary narrowing, structural script analysis and forensic reporting.
 
 </div>
 
@@ -16,7 +16,7 @@ Static PE analysis, YARA correlation, Windows AMSI, multi-engine AV scanning, PD
 
 SigLens is a local Windows security-analysis toolkit built for artifact triage, signature diagnostics, false-positive investigation and Red Team / detection-engineering workflows. It correlates findings from static analysis and locally installed security engines back to the original file layout without modifying the analyzed artifact.
 
-For binary artifacts, SigLens uses fixed PE regions and fixed **256 KiB minimum** AV windows. For script formats, it uses a different model: **AMSI scans the complete file buffer**, while SigLens separately builds a structural map of functions and script blocks so an analyst can identify regions that deserve review.
+For binary artifacts, SigLens can scan fixed PE regions and can also perform **prefix-based AV detection-boundary narrowing**. The complete file is scanned first, then progressively shorter or longer prefixes are tested to bound a reproducible `CLEAN -> DETECTED` transition. The resulting boundary is inferred from repeated engine verdicts; it is not presented as a native offset returned by the AV engine. For script formats, SigLens uses a different model: **AMSI scans the complete file buffer**, while SigLens separately builds a structural map of functions and script blocks so an analyst can identify regions that deserve review.
 
 ```text
 Artifact
@@ -31,7 +31,7 @@ Artifact
   +-- AMSI full-buffer scan
   +-- structural script analysis (PowerShell / JS / VBS / WSF / text)
   +-- fixed PE-region scan
-  +-- fixed 256 KiB binary window scan
+  +-- prefix-based AV detection-boundary narrowing
   `-- JSON / HTML reports
 ```
 
@@ -144,7 +144,7 @@ Full static/engine analysis:
 - IOC extraction;
 - PE dissection;
 - fixed PE component scans;
-- fixed binary-window scans;
+- prefix-based AV detection-boundary narrowing;
 - full-buffer AMSI results;
 - automatic structural mapping for recognized script extensions.
 
@@ -266,23 +266,37 @@ Encoding detection:
 
 ---
 
-## `window-scan` - fixed binary AV windows
-
-The default and minimum binary AV window is **256 KiB**. Windows are fixed and non-overlapping.
+## `narrow` - prefix-based AV detection-boundary narrowing
 
 ```powershell
-.\dist\SigLens.exe window-scan C:\Samples\sample.exe --engines .\dist\engines.json
+.\dist\SigLens.exe narrow C:\Samples\sample.exe --engines .\dist\engines.json
 ```
 
-Larger windows:
+`narrow` first scans the complete file with the configured AV engines. If the file is detected, SigLens performs prefix-based narrowing by testing prefixes of different lengths until it bounds a reproducible `CLEAN -> DETECTED` transition.
 
-```powershell
-.\dist\SigLens.exe window-scan C:\Samples\sample.exe --window-size 512 --engines .\dist\engines.json
+Typical trace:
+
+```text
+Prefix end      Status
+0x0230B000      DETECTED
+0x01185800      CLEAN
+0x01A47C00      DETECTED
+0x015E6A00      CLEAN
+...
 ```
 
-For every detected fixed window, SigLens reports original start/end offsets, PE section, RVA, VA, image base, entropy, SHA-256, engine verdicts and a 256-byte local inspection context with hexdump and printable strings.
+The final candidate reports:
 
-The 256-byte context is display-only. It is not submitted as a smaller AV scan and there is no recursive/adaptive refinement.
+- the last known `CLEAN` prefix boundary;
+- the first known `DETECTED` prefix boundary;
+- the remaining boundary interval;
+- PE section, RVA, VA and image base mapping around the inferred boundary;
+- engine verdicts and attribution;
+- a local 256-byte context preview with hexdump and ASCII / UTF-16LE strings.
+
+The reported boundary is **inferred by prefix scanning**. It is not claimed to be a native byte offset supplied by Microsoft Defender or another AV engine. If an engine exposes a native offset, SigLens keeps that value separately and identifies its source.
+
+The display context is for analyst inspection only; it is separate from the engine verdict itself.
 
 ---
 
@@ -452,6 +466,6 @@ SigLens writes analysis artifacts under `reports\` in JSON and HTML formats.
 - SigLens does not disable AV/EDR controls.
 - SigLens does not patch or bypass AMSI.
 - SigLens does not automatically rewrite or obfuscate analyzed files.
-- Binary AV window scans are fixed and use a 256 KiB minimum.
+- Binary AV narrowing uses prefix scans to bound a reproducible `CLEAN -> DETECTED` transition; inferred boundaries are kept distinct from native engine offsets.
 - Script analysis uses full-buffer AMSI plus structural mapping rather than sub-buffer AMSI narrowing.
 - `CANDIDATE_REGION` means a region worth analyst review, not "signature found".

@@ -1,0 +1,10 @@
+{
+  "engines": [
+    {
+      "name": "Microsoft Defender",
+      "type": "builtin",
+      "builtin": "defender",
+      "enabled": true
+    }
+  ]
+}

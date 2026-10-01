@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import sys
+import time
 
 from .utils import resolve_tool, run_command
 
@@ -25,7 +26,10 @@ def find_mpcmdrun() -> str | None:
 
     platform = Path(os.path.expandvars(r"%ProgramData%\Microsoft\Windows Defender\Platform"))
     if platform.exists():
-        for version_dir in sorted([p for p in platform.iterdir() if p.is_dir()], reverse=True):
+        for version_dir in sorted(
+            [p for p in platform.iterdir() if p.is_dir()],
+            reverse=True,
+        ):
             exe = version_dir / "MpCmdRun.exe"
             if exe.exists():
                 return str(exe)
@@ -46,34 +50,53 @@ def _powershell_json(script: str, timeout: int = 45) -> dict:
         ],
         timeout=timeout,
     )
+
     if result.get("stdout"):
         try:
             result["json"] = json.loads(result["stdout"])
         except Exception:
             pass
+
     return result
 
 
 def defender_detections_for_path(path: Path) -> dict:
     target = str(path.resolve()).replace("'", "''")
+
     script = f"""
 $Target = '{target}'
 $Detections = @(Get-MpThreatDetection -ErrorAction SilentlyContinue)
 $ThreatMap = @{{}}
+
 foreach ($t in @(Get-MpThreat -ErrorAction SilentlyContinue)) {{
     $ThreatMap[[string]$t.ThreatID] = $t
 }}
+
 $Rows = foreach ($d in $Detections) {{
-    $Resources = @($d.Resources | ForEach-Object {{ [string]$_ }})
+    $Resources = @(
+        $d.Resources |
+        ForEach-Object {{ [string]$_ }}
+    )
+
     $Match = $false
+
     foreach ($r in $Resources) {{
-        if ($r -like \"*$Target*\") {{ $Match = $true; break }}
+        if ($r -like "*$Target*") {{
+            $Match = $true
+            break
+        }}
     }}
+
     if ($Match) {{
         $Threat = $ThreatMap[[string]$d.ThreatID]
+
         [pscustomobject]@{{
             ThreatID = $d.ThreatID
-            ThreatName = if ($Threat) {{ $Threat.ThreatName }} else {{ $null }}
+            ThreatName = if ($Threat) {{
+                $Threat.ThreatName
+            }} else {{
+                $null
+            }}
             InitialDetectionTime = $d.InitialDetectionTime
             LastThreatStatusChangeTime = $d.LastThreatStatusChangeTime
             ActionSuccess = $d.ActionSuccess
@@ -81,37 +104,120 @@ $Rows = foreach ($d in $Detections) {{
         }}
     }}
 }}
+
 @($Rows) | ConvertTo-Json -Compress -Depth 6
 """
+
     return _powershell_json(script)
 
 
-def defender_scan(path: Path) -> dict:
-    exe = find_mpcmdrun()
-    if not exe:
-        return {"available": False, "error": "MpCmdRun.exe not found"}
+def _has_detection_rows(result: dict) -> bool:
+    value = result.get("json")
 
-    result = run_command([exe, "-Scan", "-ScanType", "3", "-File", str(path)], timeout=300)
+    if isinstance(value, list):
+        return bool(value)
+
+    if isinstance(value, dict):
+        return bool(value)
+
+    return False
+
+
+def defender_scan(path: Path) -> dict:
+    """
+    Run Microsoft Defender's command-line scanner.
+
+    Verdict interpretation is performed in multiav.py.
+
+    Important:
+    - The explicit MpCmdRun scan uses -DisableRemediation, matching the
+      diagnostic style used by tools such as ThreatCheck.
+    - Real-time protection is NOT disabled. It can still detect/quarantine
+      a temporary prefix before or during the explicit scan.
+    - Defender history is therefore queried after the scan as a secondary
+      source of evidence.
+    """
+
+    exe = find_mpcmdrun()
+
+    if not exe:
+        return {
+            "available": False,
+            "error": "MpCmdRun.exe not found",
+        }
+
+    existed_before = path.exists()
+
+    args = [
+        exe,
+        "-Scan",
+        "-ScanType",
+        "3",
+        "-File",
+        str(path),
+        "-DisableRemediation",
+        "-Trace",
+        "-Level",
+        "0x10",
+    ]
+
+    result = run_command(
+        args,
+        timeout=300,
+    )
+
     result["available"] = True
     result["engine_path"] = exe
-    result["detections"] = defender_detections_for_path(path)
+    result["file_existed_before_scan"] = existed_before
+    result["file_exists_after_scan"] = path.exists()
+
+    # Defender history can be updated asynchronously, especially when
+    # real-time protection reacts to the temporary file before MpCmdRun
+    # finishes. Poll briefly so a visible Windows Security alert is not
+    # immediately classified as UNKNOWN simply because history had not
+    # propagated yet.
+    detections = {}
+
+    for attempt in range(4):
+        detections = defender_detections_for_path(path)
+
+        if _has_detection_rows(detections):
+            break
+
+        if attempt < 3:
+            time.sleep(0.35)
+
+    result["detections"] = detections
+
     return result
 
 
 def defender_status() -> dict:
     script = (
         "Get-MpComputerStatus | "
-        "Select-Object AMServiceEnabled,AntivirusEnabled,RealTimeProtectionEnabled,"
-        "AntivirusSignatureVersion,AntivirusSignatureLastUpdated | ConvertTo-Json -Compress"
+        "Select-Object "
+        "AMServiceEnabled,"
+        "AntivirusEnabled,"
+        "RealTimeProtectionEnabled,"
+        "AntivirusSignatureVersion,"
+        "AntivirusSignatureLastUpdated "
+        "| ConvertTo-Json -Compress"
     )
-    result = _powershell_json(script, timeout=30)
+
+    result = _powershell_json(
+        script,
+        timeout=30,
+    )
+
     if "json" in result:
         result["status"] = result["json"]
+
     return result
 
 
 def find_clamscan() -> str | None:
     root = project_root()
+
     candidates = [
         root / "tools" / "clamav" / "clamscan.exe",
         root / "tools" / "clamscan.exe",
@@ -119,48 +225,104 @@ def find_clamscan() -> str | None:
         Path(r"C:\ClamAV\clamscan.exe"),
     ]
 
-    path_match = shutil.which("clamscan.exe") or shutil.which("clamscan")
+    path_match = (
+        shutil.which("clamscan.exe")
+        or shutil.which("clamscan")
+    )
+
     if path_match:
-        candidates.insert(0, Path(path_match))
+        candidates.insert(
+            0,
+            Path(path_match),
+        )
 
     for candidate in candidates:
         if candidate.exists():
             return str(candidate)
+
     return None
 
 
 def clamav_scan(path: Path) -> dict:
     exe = find_clamscan()
+
     if not exe:
         return {
             "available": False,
-            "error": r"clamscan.exe not found. Run scripts\Install-AVs.ps1.",
+            "error": (
+                r"clamscan.exe not found. "
+                r"Run scripts\Install-AVs.ps1."
+            ),
         }
 
     install_dir = Path(exe).parent
     database_dir = install_dir / "database"
-    args = [exe, "--no-summary"]
-    if database_dir.exists():
-        args.append(f"--database={database_dir}")
-    args.append(str(path))
 
-    result = run_command(args, timeout=300)
+    args = [
+        exe,
+        "--no-summary",
+    ]
+
+    if database_dir.exists():
+        args.append(
+            f"--database={database_dir}"
+        )
+
+    args.append(
+        str(path)
+    )
+
+    result = run_command(
+        args,
+        timeout=300,
+    )
+
     result["available"] = True
     result["engine_path"] = exe
-    result["database_path"] = str(database_dir) if database_dir.exists() else None
+    result["database_path"] = (
+        str(database_dir)
+        if database_dir.exists()
+        else None
+    )
+
     return result
 
 
 def capa_scan(path: Path) -> dict:
-    exe = resolve_tool("capa.exe", project_root()) or resolve_tool("capa", project_root())
-    if not exe:
-        return {"available": False, "error": "capa not found"}
+    exe = (
+        resolve_tool(
+            "capa.exe",
+            project_root(),
+        )
+        or resolve_tool(
+            "capa",
+            project_root(),
+        )
+    )
 
-    result = run_command([exe, "-j", str(path)], timeout=300)
+    if not exe:
+        return {
+            "available": False,
+            "error": "capa not found",
+        }
+
+    result = run_command(
+        [
+            exe,
+            "-j",
+            str(path),
+        ],
+        timeout=300,
+    )
+
     result["available"] = True
+
     if result.get("stdout"):
         try:
-            result["json"] = json.loads(result["stdout"])
+            result["json"] = json.loads(
+                result["stdout"]
+            )
         except Exception:
             pass
+
     return result

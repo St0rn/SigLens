@@ -1,0 +1,10 @@
+{
+  "engines": [
+    {
+      "name": "ClamAV",
+      "type": "builtin",
+      "builtin": "clamav",
+      "enabled": true
+    }
+  ]
+}
