@@ -1,0 +1,117 @@
+{
+  "product": "SigLens",
+  "author": "St0rn / CybersecurIT",
+  "engines": [
+    {
+      "name": "Microsoft Defender",
+      "vendor": "Microsoft",
+      "type": "builtin",
+      "builtin": "defender",
+      "enabled": true
+    },
+    {
+      "name": "ClamAV",
+      "vendor": "Cisco / ClamAV",
+      "type": "builtin",
+      "builtin": "clamav",
+      "enabled": true
+    },
+    {
+      "name": "ESET Endpoint Security",
+      "vendor": "ESET",
+      "type": "cli",
+      "enabled": false,
+      "argv": [
+        "ecls",
+        "/clean-mode=none",
+        "/log-console",
+        "/no-log-all",
+        "{file}"
+      ],
+      "detect_regex": "(?i)(infected|threat|trojan|virus|malware|potentially unsafe|potentially unwanted)",
+      "clean_regex": "(?i)(clean|0 infected|no threats)",
+      "signature_regex": "(?i)(?P<signature>(?:Win32|Win64|MSIL|PowerShell|BAT|JS)/[A-Za-z0-9_.!+\\-]+)",
+      "timeout": 300
+    },
+    {
+      "name": "Sophos Endpoint / Intercept X",
+      "vendor": "Sophos",
+      "type": "cli",
+      "enabled": false,
+      "argv": [
+        "C:\\Program Files\\Sophos\\Endpoint Defense\\sophosinterceptxcli.exe",
+        "scan",
+        "--noui",
+        "--json",
+        "{file}"
+      ],
+      "detected_exit_codes": [
+        3
+      ],
+      "clean_exit_codes": [
+        0
+      ],
+      "detect_regex": "\"detections\"\\s*:\\s*\\[(?!\\s*\\])",
+      "clean_regex": "\"detections\"\\s*:\\s*\\[\\s*\\]",
+      "signature_regex": "\"name\"\\s*:\\s*\"(?P<signature>[^\"]+)\"",
+      "timeout": 300
+    },
+    {
+      "name": "Avast Business",
+      "vendor": "Avast",
+      "type": "cli",
+      "enabled": false,
+      "argv": [
+        "C:\\Program Files\\AVAST Software\\Avast\\ashCmd.exe",
+        "{file}",
+        "/_",
+        "/a",
+        "/d",
+        "/p=4",
+        "/s"
+      ],
+      "detected_exit_codes": [
+        1
+      ],
+      "clean_exit_codes": [
+        0
+      ],
+      "detect_regex": "(?i)(infected|threat|virus)",
+      "clean_regex": "(?i)(no threats detected|clean)",
+      "signature_regex": "(?i)(?P<signature>[A-Za-z0-9_.!+\\-/]+)\\s+(?:FOUND|infected|threat)",
+      "timeout": 300
+    },
+    {
+      "name": "Malwarebytes Toolset Portable Scanner",
+      "vendor": "Malwarebytes",
+      "type": "cli",
+      "enabled": false,
+      "argv": [
+        "MBTS.exe",
+        "/scan:malware"
+      ],
+      "detect_regex": "(?i)(threats? detected|malware detected|infected)",
+      "clean_regex": "(?i)(no threats|0 threats|clean)",
+      "timeout": 900,
+      "notes": "Requires Malwarebytes Toolset. This adapter starts its malware scan; per-file target behavior depends on the installed product/edition."
+    },
+    {
+      "name": "Generic CLI AV",
+      "vendor": "Custom",
+      "type": "cli",
+      "enabled": false,
+      "argv": [
+        "C:\\Path\\To\\Scanner.exe",
+        "--scan",
+        "{file}"
+      ],
+      "detected_exit_codes": [],
+      "clean_exit_codes": [],
+      "detect_regex": "(?i)(detected|infected|malware)",
+      "clean_regex": "(?i)(clean|no threat)",
+      "signature_regex": "(?i)signature\\s*[:=]\\s*(?P<signature>[^\\r\\n]+)",
+      "offset_regex": "(?i)offset\\s*[:=]\\s*(0x[0-9a-f]+|[0-9]+)",
+      "timeout": 300
+    }
+  ]
+}

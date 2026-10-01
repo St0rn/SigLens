@@ -1,0 +1,6 @@
+typer>=0.12
+rich>=13.7
+pefile>=2024.8.26
+yara-python>=4.5
+capstone>=5.0
+jinja2>=3.1

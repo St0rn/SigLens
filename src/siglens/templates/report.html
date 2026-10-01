@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SigLens Report</title>
+<style>
+body{font-family:Segoe UI,Arial,sans-serif;margin:0;background:#0b1020;color:#dce7ff}
+header{padding:24px 32px;background:#111a33;border-bottom:1px solid #27365e}
+main{padding:24px 32px;max-width:1200px;margin:auto}
+.card{background:#111a33;border:1px solid #27365e;border-radius:12px;padding:18px;margin:14px 0}
+code,pre{font-family:Cascadia Code,Consolas,monospace}
+pre{white-space:pre-wrap;background:#0a0f1e;padding:12px;border-radius:8px;overflow:auto}
+table{width:100%;border-collapse:collapse} td,th{border-bottom:1px solid #27365e;padding:8px;text-align:left}
+.badge{display:inline-block;padding:2px 8px;border:1px solid #4e6bb3;border-radius:999px}
+.small{opacity:.8;font-size:.9em}
+</style>
+</head>
+<body>
+<header><h1>SigLens</h1><div>Created by St0rn / CybersecurIT - {{ generated }}</div></header>
+<main>
+<div class="card"><h2>File</h2><pre>{{ report.file | tojson(indent=2) }}</pre></div>
+<div class="card"><h2>PE</h2><pre>{{ report.pe | tojson(indent=2) }}</pre></div>
+<div class="card"><h2>YARA</h2><pre>{{ report.yara | tojson(indent=2) }}</pre></div>
+<div class="card"><h2>Offset -> RVA -> function -> PDB/source correlation</h2><p class="small">Function boundaries from .pdata/.xdata are considered more reliable than export-based heuristics. PDB information is shown only when DbgHelp resolves it locally.</p><pre>{{ report.correlations | tojson(indent=2) }}</pre></div>
+<div class="card"><h2>Defender</h2><pre>{{ report.defender | tojson(indent=2) }}</pre></div>
+<div class="card"><h2>ClamAV</h2><pre>{{ report.clamav | tojson(indent=2) }}</pre></div>
+<div class="card"><h2>AMSI</h2><pre>{{ report.amsi | tojson(indent=2) }}</pre></div>
+<div class="card"><h2>Script Analysis</h2><p class="small">Full-buffer AMSI plus structural mapping. Candidate regions are diagnostic context, not asserted standalone signatures.</p><pre>{{ report.script_analysis | tojson(indent=2) }}</pre></div>
+<div class="card"><h2>IOCs</h2><pre>{{ report.iocs | tojson(indent=2) }}</pre></div>
+<div class="card"><h2>PE Dissection</h2><pre>{{ report.dissection | tojson(indent=2) }}</pre></div>
+<div class="card"><h2>PE Region Scan</h2><pre>{{ report.component_scan | tojson(indent=2) }}</pre></div>
+<div class="card"><h2>Fixed Window Scan</h2><p class="small">Fixed non-overlapping windows. Original file offsets are preserved; no adaptive refinement is performed.</p><pre>{{ report.window_scan | tojson(indent=2) }}</pre></div>
+<div class="card"><h2>Multi-AV</h2><p class="small">Aggregation of full-file scans. Offsets are shown only when an engine exposes them natively.</p><pre>{{ report.multiav | tojson(indent=2) }}</pre></div>
+<div class="card"><h2>capa</h2><pre>{{ report.capa | tojson(indent=2) }}</pre></div>
+<div class="card"><h2>Refactoring hints</h2><pre>{{ report.refactor_hints | tojson(indent=2) }}</pre></div>
+<div class="card"><h2>Strings</h2><pre>{{ report.strings_summary | tojson(indent=2) }}</pre></div>
+</main>
+</body>
+</html>
