@@ -2,6 +2,10 @@
 
 ## Current build
 
+- Added cross-build report comparison for AV verdicts and signatures, AMSI,
+  YARA rules, PE imports, and location classifications.
+- Added SARIF 2.1.0 export with byte offsets, RVA/VA context, confidence,
+  provenance, engine evidence, and deterministic result fingerprints.
 - Added schema and semantic report verification, including duplicate-key,
   artifact hash/size, offset/range, hexadecimal, and VA/RVA consistency checks.
 - Report JSON and HTML writes are now atomic to protect completed output from

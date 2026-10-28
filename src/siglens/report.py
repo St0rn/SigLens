@@ -53,6 +53,11 @@ def _atomic_write_text(out: Path, content: str) -> None:
 
 def save_json(data: dict, out: Path) -> Path:
     prepare_report(data)
+    return save_json_document(data, out)
+
+
+def save_json_document(data: dict, out: Path) -> Path:
+    """Save an arbitrary JSON document without adding SigLens report fields."""
     content = json.dumps(data, indent=2, ensure_ascii=False, default=str) + "\n"
     _atomic_write_text(out, content)
     return out

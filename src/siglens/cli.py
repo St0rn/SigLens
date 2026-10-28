@@ -15,7 +15,7 @@ from .strings import extract_strings
 from .pe_analyzer import analyze_pe
 from .yara_scan import scan as yara_scan
 from .external_tools import defender_scan, defender_status, clamav_scan, capa_scan
-from .report import save_json, save_html, report_metadata
+from .report import save_json, save_html, save_json_document, report_metadata
 from .compare import compare_files
 from .refactor import build_refactor_hints
 from .amsi_scan import scan_file as amsi_scan_file
@@ -34,6 +34,8 @@ from .ghidra import (
     verify_report_artifact,
 )
 from .report_validation import ReportValidationError, load_report, validate_report
+from .report_diff import compare_reports
+from .sarif import build_sarif
 
 app = typer.Typer(add_completion=False, help="SigLens - Windows Artifact Analysis and Multi-Engine Scanner")
 console = Console()
@@ -1361,6 +1363,79 @@ def verify_report_command(
     table.add_row("Artifact", "SHA-256 and size verified" if artifact_data is not None else "not supplied")
     table.add_row("Result", "VALID")
     console.print(table)
+
+
+@app.command("compare-reports")
+def compare_reports_command(
+    old: Path = typer.Argument(..., dir_okay=False, help="Baseline SigLens JSON report"),
+    new: Path = typer.Argument(..., dir_okay=False, help="New SigLens JSON report"),
+    output: Path | None = typer.Option(None, "--output", "-o", help="Comparison JSON path"),
+):
+    """Compare AV, AMSI, YARA, import, and location evidence across reports."""
+    try:
+        old_report = load_report(old)
+        new_report = load_report(new)
+        validate_report(old_report)
+        validate_report(new_report)
+        comparison = compare_reports(old_report, new_report)
+    except ReportValidationError as exc:
+        console.print("[red]Report validation failed:[/red]")
+        for issue in exc.issues[:30]:
+            console.print(f"  [red]x[/red] {issue}")
+        raise typer.Exit(code=2)
+    except Exception as exc:
+        console.print(f"[red]Report comparison error:[/red] {type(exc).__name__}: {exc}")
+        raise typer.Exit(code=2)
+
+    if output is None:
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        output = Path.cwd() / "reports" / f"report-diff-{stamp}.json"
+    save_json(comparison, output)
+
+    summary = comparison["summary"]
+    table = Table(title=f"{__product__} - Detection evidence comparison")
+    table.add_column("Metric")
+    table.add_column("Result")
+    table.add_row("Evidence changed", "YES" if summary["changed"] else "NO")
+    table.add_row("Engine transitions", str(summary["engine_transition_count"]))
+    table.add_row("Newly detected", ", ".join(summary["newly_detected_engines"]) or "-")
+    table.add_row("No longer detected", ", ".join(summary["no_longer_detected_engines"]) or "-")
+    table.add_row("Signature changes", ", ".join(summary["signature_change_engines"]) or "-")
+    table.add_row("AMSI", f"{comparison['amsi']['old'] or '-'} -> {comparison['amsi']['new'] or '-'}")
+    table.add_row("YARA added / removed", f"{len(comparison['yara']['added_rules'])} / {len(comparison['yara']['removed_rules'])}")
+    table.add_row("Comparable engine set", "YES" if comparison["comparability"]["same_engine_set"] else "NO")
+    table.add_row("Comparison warnings", str(len(comparison["comparability"]["warnings"])))
+    table.add_row("JSON", str(output))
+    console.print(table)
+
+
+@app.command("export-sarif")
+def export_sarif_command(
+    report: Path = typer.Argument(..., dir_okay=False, help="SigLens JSON report"),
+    output: Path | None = typer.Option(None, "--output", "-o", help="SARIF 2.1.0 output path"),
+):
+    """Export SigLens evidence as SARIF 2.1.0 for CI and analysis platforms."""
+    try:
+        payload = load_report(report)
+        validate_report(payload)
+        document = build_sarif(payload)
+    except ReportValidationError as exc:
+        console.print("[red]Report validation failed:[/red]")
+        for issue in exc.issues[:30]:
+            console.print(f"  [red]x[/red] {issue}")
+        raise typer.Exit(code=2)
+    except Exception as exc:
+        console.print(f"[red]SARIF export error:[/red] {type(exc).__name__}: {exc}")
+        raise typer.Exit(code=2)
+
+    output = output or report.with_suffix(".sarif")
+    save_json_document(document, output)
+    run = document["runs"][0]
+    console.print(f"[green]SARIF:[/green] {output}")
+    console.print(
+        f"[dim]{len(run['results'])} result(s), "
+        f"{len(run['tool']['driver']['rules'])} rule(s), SARIF {document['version']}[/dim]"
+    )
 
 
 @app.command()

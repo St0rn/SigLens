@@ -92,6 +92,8 @@ flowchart LR
 - Desktop interface with Dashboard, AV, AMSI, PE, Detection Map, Hex Viewer,
   Ghidra, and Reports views.
 - CSV location export and hash-guarded Ghidra bookmark scripts.
+- Cross-build evidence comparison for AV, AMSI, YARA, imports, and locations.
+- SARIF 2.1.0 export for CI systems and compatible security platforms.
 - Versioned `siglens-report/v1` JSON contract and standalone HTML reports.
 - Atomic report writes and schema/semantic verification.
 - Cooperative GUI cancellation between analysis stages.
@@ -200,6 +202,33 @@ because they have no loaded memory address.
 See [Ghidra location workflow](docs/ghidra-workflow.md) for import instructions
 and interpretation guidance.
 
+## Detection research workflow
+
+Keep a baseline report for a known build, analyze the next build under the same
+lab conditions, and compare the recorded evidence:
+
+```powershell
+siglens compare-reports .\reports\baseline.json .\reports\candidate.json `
+  --output .\reports\evidence-diff.json
+```
+
+The comparison records engine verdict and signature transitions, AMSI changes,
+added or removed YARA rules, PE import changes, and Ghidra-location counts by
+classification. Results describe observed lab evidence; they do not label a
+build as evasive or generate transformations. SigLens warns when tool versions,
+engine sets, or AMSI coverage differ between the two reports.
+
+Export the candidate evidence to SARIF 2.1.0 for ingestion by CI and analysis
+platforms:
+
+```powershell
+siglens export-sarif .\reports\candidate.json `
+  --output .\reports\candidate.sarif
+```
+
+SARIF results preserve byte offsets, confidence, RVA/VA data, engine signatures,
+provenance, and deterministic fingerprints for result tracking.
+
 ## Command reference
 
 | Command | Purpose |
@@ -215,6 +244,8 @@ and interpretation guidance.
 | `locate` | Correlate an offset with PE functions, PDBs, and source |
 | `ghidra-offsets` | Export verified analyst locations and bookmark scripts |
 | `verify-report` | Validate schema, hashes, ranges, and address consistency |
+| `compare-reports` | Compare AV, AMSI, YARA, import, and location evidence |
+| `export-sarif` | Export findings and provenance as SARIF 2.1.0 |
 | `compare` | Compare two builds and report changed binary ranges |
 | `path-test` | Diagnose Windows path and file-access behavior |
 | `doctor` | Inspect runtime and integration availability |

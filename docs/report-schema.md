@@ -30,3 +30,20 @@ inside the file, checks rendered hexadecimal values, validates range ordering,
 and confirms `VA = image base + RVA`. JSON objects with duplicate keys are
 rejected. Report files are written atomically so an interrupted process does not
 replace a previous complete report with partial JSON or HTML.
+
+Compare two validated reports to track evidence changes between builds:
+
+```powershell
+.\dist\SigLens.exe compare-reports .\reports\baseline.json .\reports\candidate.json `
+  --output .\reports\evidence-diff.json
+```
+
+Comparison reports use `report_type: comparison` and record engine transitions,
+AMSI status, YARA rule changes, PE import changes, and location-classification
+counts. They also flag different engine sets, tool versions, and incomplete AMSI
+coverage because those conditions weaken cross-build comparisons. Export an
+artifact report as SARIF 2.1.0 with:
+
+```powershell
+.\dist\SigLens.exe export-sarif .\reports\candidate.json -o .\reports\candidate.sarif
+```
