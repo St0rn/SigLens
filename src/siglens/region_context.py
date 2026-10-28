@@ -26,7 +26,7 @@ def hexdump(data: bytes, base_offset: int = 0, width: int = 16) -> list[str]:
 def _layout(data: bytes) -> dict:
     try:
         pe = pefile.PE(data=data, fast_load=False)
-    except pefile.PEFormatError:
+    except Exception:
         return {"is_pe": False, "image_base": None, "size_of_headers": 0, "sections": [], "overlay_offset": None}
 
     sections = []
@@ -35,7 +35,7 @@ def _layout(data: bytes) -> dict:
         raw_size = int(sec.SizeOfRawData)
         raw_end = min(len(data), raw_start + raw_size)
         sections.append({
-            "name": sec.Name.rstrip(b"\\x00").decode(errors="replace") or "<unnamed>",
+            "name": sec.Name.rstrip(b"\x00").decode(errors="replace") or "<unnamed>",
             "raw_start": raw_start,
             "raw_end": raw_end,
             "rva_start": int(sec.VirtualAddress),

@@ -19,7 +19,11 @@ def analyze_pe(path: Path, data: bytes | None = None) -> dict:
         if data is None:
             _, data, _ = read_file_bytes(path)
         pe = pefile.PE(data=data, fast_load=False)
-    except pefile.PEFormatError:
+    except pefile.PEFormatError as exc:
+        out["error"] = f"PEFormatError: {exc}"
+        return out
+    except Exception as exc:
+        out["error"] = f"{type(exc).__name__}: {exc}"
         return out
 
     out["is_pe"] = True

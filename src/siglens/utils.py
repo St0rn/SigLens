@@ -1,6 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
-import hashlib, math, shutil, subprocess
+import hashlib, math, shutil, subprocess, time
 from collections import Counter
 from .fileio import read_file_bytes
 
@@ -35,7 +35,16 @@ def resolve_tool(name: str, root: Path | None = None) -> str | None:
     return None
 
 
-def run_command(args: list[str], timeout: int = 120) -> dict:
+def _subprocess_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return value
+
+
+def run_command(args: list[str], timeout: int | float = 120) -> dict:
+    started = time.perf_counter()
     try:
         p = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
         return {
@@ -44,6 +53,33 @@ def run_command(args: list[str], timeout: int = 120) -> dict:
             "stdout": p.stdout,
             "stderr": p.stderr,
             "args": args,
+            "timed_out": False,
+            "timeout_seconds": timeout,
+            "duration_ms": round((time.perf_counter() - started) * 1000, 3),
+        }
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "ok": False,
+            "returncode": None,
+            "stdout": _subprocess_text(exc.stdout),
+            "stderr": _subprocess_text(exc.stderr),
+            "args": args,
+            "timed_out": True,
+            "timeout_seconds": timeout,
+            "duration_ms": round((time.perf_counter() - started) * 1000, 3),
+            "error": f"Command timed out after {timeout} seconds",
+            "error_type": type(exc).__name__,
         }
     except Exception as e:
-        return {"ok": False, "error": str(e), "args": args}
+        return {
+            "ok": False,
+            "returncode": None,
+            "stdout": "",
+            "stderr": "",
+            "args": args,
+            "timed_out": False,
+            "timeout_seconds": timeout,
+            "duration_ms": round((time.perf_counter() - started) * 1000, 3),
+            "error": str(e),
+            "error_type": type(e).__name__,
+        }

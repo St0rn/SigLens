@@ -81,6 +81,9 @@ def normalize_result(
         ),
         "whole_file_only": True,
         "returncode": raw.get("returncode"),
+        "duration_ms": raw.get("duration_ms"),
+        "timed_out": bool(raw.get("timed_out", False)),
+        "timeout_seconds": raw.get("timeout_seconds"),
         "stdout": raw.get("stdout", ""),
         "stderr": raw.get("stderr", ""),
         "error": raw.get("error"),
@@ -417,23 +420,53 @@ def scan_cli(
             item
         )
 
+    regex_error = None
+    for regex_key in (
+        "detect_regex",
+        "clean_regex",
+        "signature_regex",
+        "offset_regex",
+    ):
+        pattern = engine.get(regex_key)
+        if not pattern:
+            continue
+        try:
+            re.compile(str(pattern), re.I | re.M)
+        except re.error as exc:
+            regex_error = f"Invalid {regex_key}: {exc}"
+            break
+
+    try:
+        timeout_seconds = int(engine.get("timeout", 300))
+        if timeout_seconds <= 0:
+            raise ValueError("must be greater than zero")
+    except (TypeError, ValueError) as exc:
+        regex_error = f"Invalid timeout: {exc}"
+
+    if regex_error:
+        raw = {
+            "available": True,
+            "error": regex_error,
+            "args": resolved,
+        }
+        result = normalize_result(
+            name,
+            raw,
+            engine_type="cli",
+            status="error",
+        )
+        result["config_error"] = regex_error
+        return result
+
     raw = run_command(
         resolved,
-        timeout=int(
-            engine.get(
-                "timeout",
-                300,
-            )
-        ),
+        timeout=timeout_seconds,
     )
 
-    raw["available"] = (
-        not bool(
-            raw.get(
-                "error"
-            )
-        )
-    )
+    # Reaching this point means the configured executable was resolved. A
+    # timeout, permission failure, or process-launch error is an engine ERROR,
+    # not evidence that the engine is unavailable.
+    raw["available"] = True
 
     text = _combined_output(
         raw
@@ -491,7 +524,12 @@ def scan_cli(
         )
     }
 
-    if (
+    if raw.get(
+        "error"
+    ):
+        status = "error"
+
+    elif (
         detected
         or rc in detected_codes
     ):
@@ -510,11 +548,6 @@ def scan_cli(
         and rc == 0
     ):
         status = "clean"
-
-    elif raw.get(
-        "error"
-    ):
-        status = "error"
 
     else:
         status = "unknown"

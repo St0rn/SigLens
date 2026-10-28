@@ -2,6 +2,15 @@
 
 ## Current build
 
+- Corrected fixed-window sizing so `window_kib` is consistently interpreted as
+  KiB in segmentation and report metadata.
+- Scanner timeouts and launch failures now remain `ERROR` results, with elapsed
+  time and timeout diagnostics, instead of being reported as unavailable or
+  clean.
+- Invalid adapter regular expressions and timeout values are rejected before a
+  scanner process is started.
+- Hardened PE and Win32 file handling against parser failures, truncated reads,
+  and NUL-padded section names.
 - Product name: SigLens.
 - Attribution: St0rn / CybersecurIT.
 - Consolidated Windows artifact scanning and reporting.

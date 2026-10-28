@@ -93,9 +93,15 @@ def _read_bytes_win32(path: Path) -> bytes:
                 err = ctypes.get_last_error()
                 raise OSError(err, ctypes.FormatError(err), str(path))
             if got.value == 0:
-                break
+                raise OSError(
+                    f"Unexpected end of file with {remaining} bytes remaining"
+                )
             chunks.append(buf.raw[: got.value])
             remaining -= got.value
+        if remaining:
+            raise OSError(
+                f"Incomplete file read with {remaining} bytes remaining"
+            )
         return b"".join(chunks)
     finally:
         CloseHandle(handle)

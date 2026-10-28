@@ -34,11 +34,11 @@ def fixed_windows(
     """
     if window_kib < MIN_WINDOW_KIB:
         raise ValueError(
-            f"window_kib must be >= {MIN_WINDOW_KIB} B "
-            f"(requested: {window_kib} B)"
+            f"window_kib must be >= {MIN_WINDOW_KIB} KiB "
+            f"(requested: {window_kib} KiB)"
         )
 
-    window_size = int(window_kib)
+    window_size = int(window_kib) * 1024
     count = (len(data) + window_size - 1) // window_size if data else 0
 
     if count > max_windows:
@@ -651,7 +651,7 @@ def window_scan(
                 "display_title": "SigLens - Detection Boundary Narrowing",
                 "classification": "EMPTY_FILE",
                 "window_kib": window_kib,
-                "window_bytes": window_kib,
+                "window_bytes": window_kib * 1024,
                 "minimum_window_kib": minimum_prefix_kib,
                 "minimum_window_bytes": minimum_prefix_bytes,
                 "context_preview_bytes": preview_bytes,
@@ -684,7 +684,7 @@ def window_scan(
                 "display_title": "SigLens - Detection Boundary Narrowing",
                 "classification": "SCAN_LIMIT_REACHED",
                 "window_kib": window_kib,
-                "window_bytes": window_kib,
+                "window_bytes": window_kib * 1024,
                 "minimum_window_kib": minimum_prefix_kib,
                 "minimum_window_bytes": minimum_prefix_bytes,
                 "context_preview_bytes": preview_bytes,
@@ -722,7 +722,7 @@ def window_scan(
                 "display_title": "SigLens - Detection Boundary Narrowing",
                 "classification": "CLEAN",
                 "window_kib": window_kib,
-                "window_bytes": window_kib,
+                "window_bytes": window_kib * 1024,
                 "minimum_window_kib": minimum_prefix_kib,
                 "minimum_window_bytes": minimum_prefix_bytes,
                 "context_preview_bytes": preview_bytes,
@@ -819,7 +819,7 @@ def window_scan(
 
         # Existing API / renderer compatibility.
         "window_kib": window_kib,
-        "window_bytes": window_kib,
+        "window_bytes": window_kib * 1024,
         "minimum_window_kib": minimum_prefix_kib,
         "minimum_window_bytes": minimum_prefix_bytes,
         "context_preview_bytes": preview_bytes,
