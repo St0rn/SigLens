@@ -2,490 +2,340 @@
 
 # SigLens
 
-### Windows Artifact Analysis & Multi-Engine Security Scanner
+### Evidence-driven Windows artifact analysis
 
-**Created by St0rn / CybersecurIT**
+Correlate static findings and local security-engine verdicts with the exact
+file offsets, PE addresses, functions, symbols, and source locations that an
+analyst can review.
 
-Static PE analysis, YARA correlation, Windows AMSI, multi-engine AV scanning, PDB/source mapping, prefix-based detection-boundary narrowing, structural script analysis and forensic reporting.
+[![CI](https://img.shields.io/github/actions/workflow/status/St0rn/SigLens/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/St0rn/SigLens/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?style=for-the-badge&logo=windows11&logoColor=white)](#requirements)
+[![License](https://img.shields.io/github/license/St0rn/SigLens?style=for-the-badge&color=22C55E)](LICENSE)
+
+**Created by [St0rn / CybersecurIT](#project)**
+
+[Overview](#overview) · [Capabilities](#capabilities) · [Quick start](#quick-start) · [Ghidra](#ghidra-workflow) · [Commands](#command-reference) · [Development](#development)
 
 </div>
 
 ---
 
-## What is SigLens?
+> [!NOTE]
+> SigLens preserves the analyzed artifact. It distinguishes native offsets,
+> exact YARA matches, inferred boundaries, and candidate regions so downstream
+> decisions remain tied to the strength of the available evidence.
 
-SigLens is a local Windows security-analysis toolkit built for artifact triage, signature diagnostics, false-positive investigation and Red Team / detection-engineering workflows. It correlates findings from static analysis and locally installed security engines back to the original file layout without modifying the analyzed artifact.
+## Overview
 
-For binary artifacts, SigLens can scan fixed PE regions and can also perform **prefix-based AV detection-boundary narrowing**. The complete file is scanned first, then progressively shorter or longer prefixes are tested to bound a reproducible `CLEAN -> DETECTED` transition. The resulting boundary is inferred from repeated engine verdicts; it is not presented as a native offset returned by the AV engine. For script formats, SigLens uses a different model: **AMSI scans the complete file buffer**, while SigLens separately builds a structural map of functions and script blocks so an analyst can identify regions that deserve review.
+SigLens is a local Windows analysis toolkit for artifact triage, false-positive
+investigation, signature diagnostics, and detection engineering. It combines
+PE inspection, YARA, AMSI, locally installed AV engines, symbol resolution, and
+forensic reporting in one CLI and desktop workflow.
 
-```text
-Artifact
-  |
-  +-- hashes / entropy / strings / IOCs
-  +-- PE sections / resources / overlay
-  +-- YARA -> exact native match offsets
-  +-- offset -> section -> RVA -> VA
-  |                 +-- x64 .pdata function boundary
-  |                 `-- PDB symbol / source line
-  +-- Microsoft Defender / ClamAV / configurable AV CLIs
-  +-- AMSI full-buffer scan
-  +-- structural script analysis (PowerShell / JS / VBS / WSF / text)
-  +-- fixed PE-region scan
-  +-- prefix-based AV detection-boundary narrowing
-  `-- JSON / HTML reports
+| Analyze | Correlate | Review | Report |
+| :--- | :--- | :--- | :--- |
+| PE structure, strings, entropy, IOCs, scripts | File offset → section → RVA → VA → function → PDB/source | Hex context, Ghidra bookmarks, engine provenance | Versioned JSON and standalone HTML |
+
+SigLens uses two attribution models:
+
+- **Binary artifacts:** exact YARA offsets, native engine offsets when exposed,
+  fixed PE-region scans, and repeated prefix measurements for inferred
+  detection boundaries.
+- **Script artifacts:** a complete-buffer AMSI verdict combined with a separate
+  structural map of functions and script blocks. Structural regions are review
+  candidates, not asserted standalone signatures.
+
+```mermaid
+flowchart LR
+    A[Artifact] --> B[Static analysis]
+    A --> C[Local security engines]
+    B --> D[Offsets and PE mapping]
+    C --> E[Verdicts and provenance]
+    D --> F[Function, PDB, source]
+    D --> G[Ghidra locations]
+    E --> H[Evidence classification]
+    F --> I[JSON and HTML report]
+    G --> I
+    H --> I
 ```
 
-## Creator
+## Capabilities
 
-SigLens is created by **St0rn / CybersecurIT**.
+### Artifact intelligence
 
-```powershell
-.\dist\SigLens.exe about
-```
+- SHA-256, SHA-1, MD5, size, entropy, ASCII, and UTF-16LE strings.
+- PE headers, sections, imports, exports, resources, overlay, and section hashes.
+- IOC extraction for URLs, IPv4 addresses, domains, and Windows paths.
+- Optional capa capability analysis.
+- Binary comparison with changed-range reporting.
 
-```text
-SigLens
-Created by St0rn / CybersecurIT
-Windows Artifact Analysis and Multi-Engine Scanner
-```
+### Evidence correlation
 
----
+- Exact YARA match offsets with PE and symbol correlation.
+- File offset → section → RVA → VA conversion.
+- x64 runtime-function boundaries from PE exception metadata.
+- Local PDB symbol and source-line resolution when available.
+- Local byte context with hexdump and printable strings.
 
-## Installation
+### Security-engine analysis
+
+- Microsoft Defender, ClamAV, and configurable local CLI adapters.
+- Full-buffer Windows AMSI with normalized and raw result values.
+- Fixed PE component and window scanning.
+- Repeated prefix measurements with stability confidence and non-monotonic
+  verdict detection.
+- Explicit `CLEAN`, `DETECTED`, `UNKNOWN`, `UNAVAILABLE`, and `ERROR` states.
+
+### Analyst experience
+
+- Desktop interface with Dashboard, AV, AMSI, PE, Detection Map, Hex Viewer,
+  Ghidra, and Reports views.
+- CSV location export and hash-guarded Ghidra bookmark scripts.
+- Versioned `siglens-report/v1` JSON contract and standalone HTML reports.
+- Atomic report writes and schema/semantic verification.
+- Cooperative GUI cancellation between analysis stages.
+
+## Quick start
 
 ### Requirements
 
-- Windows 10 / Windows 11 or Windows Server
-- PowerShell 5.1+
-- Python 3.11+ for development/source execution
-- Internet access during dependency and optional ClamAV installation
+- Windows 10, Windows 11, or Windows Server.
+- PowerShell 5.1 or later.
+- Python 3.11 or later for source and development installs.
+- Internet access during dependency and optional ClamAV installation.
 
-Allow scripts in the current PowerShell process only:
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-```
-
-Install SigLens and development dependencies:
+### Install from source
 
 ```powershell
+git clone https://github.com/St0rn/SigLens.git
+cd SigLens
 .\scripts\Install.ps1 -Dev -AddToUserPath
 ```
 
-The installer:
+The installer creates an isolated `.venv`, installs SigLens and its `siglens`
+console command, detects local integrations, and installs or updates portable
+ClamAV unless `-SkipAVInstall` is supplied. Licensed commercial products are
+detected when present and are never installed silently.
 
-- refreshes the Windows PATH before discovering Python;
-- creates an isolated `.venv`;
-- installs Python dependencies;
-- creates a `siglens` command shim;
-- detects Microsoft Defender;
-- installs/updates the portable ClamAV engine unless `-SkipAVInstall` is supplied;
-- detects supported commercial AV command-line scanners when already installed.
+If the current PowerShell policy blocks local scripts, apply the policy your
+organization permits for this process before running the installer.
 
-Commercial security products that require a license are **not silently installed**.
+### Run an analysis
+
+```powershell
+siglens scan C:\Samples\sample.exe
+```
+
+```powershell
+siglens scan C:\Samples\sample.exe `
+  --yara .\rules `
+  --symbol-path .\symbols `
+  --iocs `
+  --dissect `
+  --capa `
+  --amsi `
+  --engines .\engines.json
+```
+
+Reports are written to `reports\` as JSON and HTML.
+
+### Launch the desktop interface
+
+```powershell
+siglens gui
+siglens gui C:\Samples\sample.exe
+```
 
 ### Build the standalone executable
 
 ```powershell
 .\scripts\Build.ps1
+.\dist\SigLens.exe --help
 ```
 
-Output:
+The build includes engine configuration templates and the report schema under
+`dist\`.
 
-```text
-dist\SigLens.exe
-```
+## Evidence model
 
-The build also copies `engines.json` and `engines.example.json` into `dist\`.
+Every Ghidra location carries a classification, confidence value when
+available, and provenance.
 
-### Run tests
+| Classification | Meaning | Evidentiary strength |
+| :--- | :--- | :--- |
+| `EXACT_MATCH` | Exact offset emitted by YARA | Exact |
+| `NATIVE_ENGINE_OFFSET` | Offset emitted by a configured engine adapter | Native to that engine |
+| `INFERRED_BOUNDARY` | Reproducible transition bounded by prefix measurements | Experimental |
+| `CANDIDATE_REGION` | Detected or structurally relevant region | Region-level |
+| `CONTEXT_DEPENDENT` | Measurements do not support one responsible location | Indeterminate |
+
+Prefix narrowing records repeated verdicts and controlled checkpoints. If the
+same prefix produces conflicting results, or a shorter prefix is detected while
+a longer prefix is clean, SigLens reports `CONTEXT_DEPENDENT` rather than a
+single inferred boundary.
+
+## Ghidra workflow
+
+Generate an analysis report, verify it against the exact artifact, and export
+review locations:
 
 ```powershell
-.\scripts\Test.ps1
-```
+siglens scan C:\Samples\sample.exe --yara .\rules --engines .\engines.json
 
-CI runs the unit suite and standalone packaging smoke tests on Python 3.11 and
-3.12 for Linux and Windows. A separate Windows job submits a benign complete
-buffer to AMSI and inspects Defender status when the runner exposes it.
+siglens verify-report .\reports\sample.json `
+  --artifact C:\Samples\sample.exe
 
----
-
-## Quick start
-
-```powershell
-.\dist\SigLens.exe scan C:\Samples\sample.exe
-```
-
-Optional desktop interface:
-
-```powershell
-.\dist\SigLens.exe gui
-.\dist\SigLens.exe gui C:\Samples\sample.exe
-```
-
-The desktop analysis runs on a worker thread and supports cooperative
-cancellation between analysis stages. It keeps AV, AMSI, PE, hex, map, and
-report views separate from the reusable analysis engine.
-
-Full static/engine analysis:
-
-```powershell
-.\dist\SigLens.exe scan C:\Samples\sample.exe `
-  --yara .\rules `
-  --capa `
-  --iocs `
-  --dissect `
-  --amsi `
-  --engines .\dist\engines.json
-```
-
----
-
-# Commands and features
-
-## `scan` - consolidated artifact analysis
-
-`scan` is the main orchestration command. Depending on the selected options it can collect:
-
-- file hashes and size;
-- global entropy;
-- PE metadata, sections, imports and exports;
-- printable ASCII / UTF-16LE strings;
-- YARA matches and exact YARA offsets;
-- offset -> section -> RVA -> VA correlation;
-- x64 runtime-function and local PDB/source information;
-- Microsoft Defender / ClamAV / custom engine output;
-- capa capabilities;
-- IOC extraction;
-- PE dissection;
-- fixed PE component scans;
-- prefix-based AV detection-boundary narrowing;
-- full-buffer AMSI results;
-- automatic structural mapping for recognized script extensions.
-
-Example:
-
-```powershell
-.\dist\SigLens.exe scan C:\Samples\sample.exe `
-  --yara .\rules `
-  --symbol-path .\symbols `
-  --iocs `
-  --dissect
-```
-
-Reports are written to `reports\` in JSON and HTML formats.
-JSON output follows the versioned `siglens-report/v1` contract documented in
-[`docs/report-schema.md`](docs/report-schema.md).
-
-Prefix narrowing repeats each measured prefix, records confidence, and samples
-controlled checkpoints. Conflicting repeated verdicts or an observed shorter
-`DETECTED` prefix followed by a longer `CLEAN` prefix are classified
-`CONTEXT_DEPENDENT`; SigLens does not report a single inferred boundary in that
-case.
-
-Export verified navigation locations for Ghidra:
-
-```powershell
-.\dist\SigLens.exe ghidra-offsets C:\Samples\sample.exe .\reports\sample.json `
+siglens ghidra-offsets C:\Samples\sample.exe .\reports\sample.json `
   --output .\reports\sample-ghidra.csv `
   --script .\reports\ImportSigLens.py
 ```
 
-The export provides file offsets, RVA, VA, section, provenance, and confidence.
-The optional Ghidra script verifies the executable hash and creates categorized
-bookmarks using the current program image base.
-See [`docs/ghidra-workflow.md`](docs/ghidra-workflow.md) for the distinction
-between exact, native, inferred, candidate, and context-dependent locations.
+The exporter verifies the artifact SHA-256 before using any location. The
+generated script performs the same check inside Ghidra, resolves each RVA
+against the current program image base, and creates a
+`SigLens/<classification>` bookmark. Raw overlay offsets remain in the CSV
+because they have no loaded memory address.
 
-Validate a JSON report and optionally bind it to the exact artifact:
+See [Ghidra location workflow](docs/ghidra-workflow.md) for import instructions
+and interpretation guidance.
 
-```powershell
-.\dist\SigLens.exe verify-report .\reports\sample.json `
-  --artifact C:\Samples\sample.exe
-```
+## Command reference
 
----
+| Command | Purpose |
+| :--- | :--- |
+| `scan` | Consolidated static, YARA, engine, IOC, PE, and report workflow |
+| `multi-scan` | Full-file scans through configured local security engines |
+| `amsi-scan` | Submit one complete file buffer through Windows AMSI |
+| `script-analyze` | Full-buffer AMSI plus structural script diagnostics |
+| `component-scan` | Scan fixed PE sections and the overlay |
+| `narrow` | Bound a reproducible AV prefix-detection transition |
+| `dissect` | Inspect PE sections, resources, hashes, entropy, and overlay |
+| `inspect-offset` | Map an offset and display its local bytes and strings |
+| `locate` | Correlate an offset with PE functions, PDBs, and source |
+| `ghidra-offsets` | Export verified analyst locations and bookmark scripts |
+| `verify-report` | Validate schema, hashes, ranges, and address consistency |
+| `compare` | Compare two builds and report changed binary ranges |
+| `path-test` | Diagnose Windows path and file-access behavior |
+| `doctor` | Inspect runtime and integration availability |
+| `gui` | Launch the desktop analyst interface |
+| `about` | Display version and project attribution |
 
-## `multi-scan` - multiple local security engines
+Run `siglens COMMAND --help` for command-specific options.
 
-```powershell
-.\dist\SigLens.exe multi-scan C:\Samples\sample.exe --engines .\dist\engines.json
-```
-
-Adapters/templates cover Microsoft Defender, ClamAV, ESET Endpoint Security, Sophos Endpoint / Intercept X, Avast Business, Malwarebytes Toolset and generic local command-line scanners.
-
-A scanner may return `DETECTED`, `CLEAN`, `UNKNOWN`, `UNAVAILABLE` or `ERROR`. Exact byte offsets are displayed only when the underlying engine exposes them natively.
-
----
-
-## `amsi-scan` - full-buffer AMSI
-
-```powershell
-.\dist\SigLens.exe amsi-scan C:\Samples\sample.ps1
-```
-
-SigLens submits the **complete file buffer** through Windows `AmsiScanBuffer` and displays both normalized status and raw AMSI result information:
-
-```text
-AMSI_RESULT_CLEAN
-AMSI_RESULT_NOT_DETECTED
-AMSI_RESULT_BLOCKED_BY_ADMIN
-AMSI_RESULT_DETECTED
-```
-
-`amsi-scan` does not split, rewrite, patch or obfuscate content.
-
----
-
-## `script-analyze` - AMSI + structural script diagnostics
-
-For PowerShell, JavaScript, VBScript, WSF and text artifacts:
+<details>
+<summary><strong>Common focused workflows</strong></summary>
 
 ```powershell
-.\dist\SigLens.exe script-analyze C:\Samples\sample.ps1
+# Map a known offset and inspect nearby content
+siglens inspect-offset C:\Samples\sample.exe 0x005C0000 --preview-bytes 512
+
+# Resolve the containing function and local symbols
+siglens locate C:\Samples\sample.exe 0x18A20 --symbol-path .\symbols
+
+# Inspect PE structure
+siglens dissect C:\Samples\sample.exe
+
+# Compare two builds
+siglens compare .\old.exe .\new.exe
+
+# Analyze a PowerShell script
+siglens script-analyze C:\Samples\sample.ps1 --context-lines 5 --json
+
+# Narrow a reproducible engine transition
+siglens narrow C:\Samples\sample.exe --engines .\engines.json
 ```
 
-Typical output:
+</details>
 
-```text
-SigLens - AMSI Analysis
+## Engine configuration
 
-File            : sample.ps1
-Encoding        : UTF-8
-Size            : 18432 bytes
-AMSI             : DETECTED
-
-Structural regions
--------------------------------------------------------------
-Lines 1-34       module/imports
-Lines 36-81      function Invoke-Example
-Lines 83-117     function Resolve-Target
-Lines 119-143    main script block
-
-Candidate context
-Lines            : 83-117
-Byte offsets     : 0x000018F0 - 0x000024A8
-AST type         : FunctionDefinitionAst
-Classification   : CANDIDATE_REGION
-```
-
-How it works:
-
-1. The complete file is scanned through AMSI.
-2. SigLens detects the text encoding.
-3. PowerShell uses the PowerShell parser/AST when available, with a local heuristic fallback.
-4. JS/VBS/WSF files use format-aware structural heuristics.
-5. Structural regions receive static diagnostic indicators.
-6. If AMSI detects the complete buffer, SigLens ranks structural regions for analyst review.
-
-A candidate region is **not claimed to be an autonomous AMSI signature**. Detection can depend on context, multiple fragments, content type, the AMSI consumer or the associated antimalware provider.
-
-If AMSI detects the full buffer but no region can be attributed with confidence, SigLens reports:
-
-```text
-CONTEXT_DEPENDENT
-```
-
-Options:
-
-```powershell
-.\dist\SigLens.exe script-analyze sample.ps1 --context-lines 5
-.\dist\SigLens.exe script-analyze sample.ps1 --max-file-size 20
-.\dist\SigLens.exe script-analyze sample.ps1 --json
-```
-
-Recognized extensions:
-
-```text
-.ps1 .psm1 .psd1 .js .jse .vbs .vbe .wsf .txt
-```
-
-Encoding detection:
-
-- UTF-8;
-- UTF-8 BOM;
-- UTF-16 LE;
-- UTF-16 BE;
-- ANSI / CP1252 fallback.
-
----
-
-## `narrow` - prefix-based AV detection-boundary narrowing
-
-```powershell
-.\dist\SigLens.exe narrow C:\Samples\sample.exe --engines .\dist\engines.json
-```
-
-`narrow` first scans the complete file with the configured AV engines. If the file is detected, SigLens performs prefix-based narrowing by testing prefixes of different lengths until it bounds a reproducible `CLEAN -> DETECTED` transition.
-
-Typical trace:
-
-```text
-Prefix end      Status
-0x0230B000      DETECTED
-0x01185800      CLEAN
-0x01A47C00      DETECTED
-0x015E6A00      CLEAN
-...
-```
-
-The final candidate reports:
-
-- the last known `CLEAN` prefix boundary;
-- the first known `DETECTED` prefix boundary;
-- the remaining boundary interval;
-- PE section, RVA, VA and image base mapping around the inferred boundary;
-- engine verdicts and attribution;
-- a local 256-byte context preview with hexdump and ASCII / UTF-16LE strings.
-
-The reported boundary is **inferred by prefix scanning**. It is not claimed to be a native byte offset supplied by Microsoft Defender or another AV engine. If an engine exposes a native offset, SigLens keeps that value separately and identifies its source.
-
-The display context is for analyst inspection only; it is separate from the engine verdict itself.
-
----
-
-## `component-scan` - PE sections and overlay
-
-```powershell
-.\dist\SigLens.exe component-scan C:\Samples\sample.exe --engines .\dist\engines.json
-```
-
-Scans fixed PE structural regions while preserving original file offsets and RVAs.
-
----
-
-## `dissect` - PE structure
-
-```powershell
-.\dist\SigLens.exe dissect C:\Samples\sample.exe
-```
-
-Reports sections, raw offsets, RVAs, sizes, entropy, hashes, resources and overlay metadata.
-
----
-
-## `inspect-offset` - local byte context
-
-```powershell
-.\dist\SigLens.exe inspect-offset C:\Samples\sample.exe 0x005C0000
-```
-
-Maps `file offset -> PE section -> RVA -> VA -> image base` and shows a local hexdump plus ASCII/UTF-16LE strings.
-
-```powershell
-.\dist\SigLens.exe inspect-offset sample.exe 0x005C0000 --preview-bytes 512
-```
-
----
-
-## `locate` - function / PDB / source correlation
-
-```powershell
-.\dist\SigLens.exe locate C:\Samples\sample.exe 0x18A20 --symbol-path .\symbols
-```
-
-Correlation path:
-
-```text
-file offset -> PE section -> RVA -> VA -> x64 .pdata runtime function -> local PDB symbol -> source line
-```
-
----
-
-## YARA correlation
-
-```powershell
-.\dist\SigLens.exe scan C:\Samples\sample.exe --yara .\rules --symbol-path .\symbols
-```
-
-YARA match offsets are native YARA offsets and can be correlated back to PE/symbol information.
-
----
-
-## IOC extraction
-
-```powershell
-.\dist\SigLens.exe scan C:\Samples\sample.exe --iocs
-```
-
-Extracts URLs, IPv4 addresses, domains and Windows paths from printable content.
-
----
-
-## capa integration
-
-```powershell
-.\dist\SigLens.exe scan C:\Samples\sample.exe --capa
-```
-
-When `capa.exe` is available, its output is embedded in the report.
-
----
-
-## `compare` - compare builds
-
-```powershell
-.\dist\SigLens.exe compare .\old.exe .\new.exe
-```
-
-Compares hashes, size, entropy, PE information and changed binary ranges.
-
----
-
-## `path-test` - Windows file-access diagnostics
-
-```powershell
-.\dist\SigLens.exe path-test C:\Samples\sample.exe
-```
-
-Checks path normalization and SigLens file-I/O fallbacks.
-
----
-
-## `doctor`
-
-```powershell
-.\dist\SigLens.exe doctor
-```
-
-Checks the runtime environment and available integrations.
-
----
-
-## `about`
-
-```powershell
-.\dist\SigLens.exe about
-```
-
-Displays product attribution.
-
----
-
-# AV engine configuration
-
-Edit `engines.json` to enable scanners installed locally.
+Copy `engines.example.json` to a local configuration and enable only scanners
+that are installed and licensed on the workstation.
 
 ```json
 {
-  "name": "Example AV",
-  "type": "cli",
-  "enabled": true,
-  "argv": ["C:\\AV\\scanner.exe", "--scan", "{file}"],
-  "detected_exit_codes": [1],
-  "clean_exit_codes": [0],
-  "detect_regex": "(?i)(detected|infected)",
-  "clean_regex": "(?i)(clean|no threat)",
-  "signature_regex": "(?i)signature\\s*[:=]\\s*(?P<signature>[^\\r\\n]+)",
-  "timeout": 300
+  "product": "SigLens",
+  "engines": [
+    {
+      "name": "Example AV",
+      "type": "cli",
+      "enabled": true,
+      "argv": ["C:\\AV\\scanner.exe", "--scan", "{file}"],
+      "detected_exit_codes": [1],
+      "clean_exit_codes": [0],
+      "detect_regex": "(?i)(detected|infected)",
+      "clean_regex": "(?i)(clean|no threat)",
+      "signature_regex": "(?i)signature\\s*[:=]\\s*(?P<signature>[^\\r\\n]+)",
+      "timeout": 300
+    }
+  ]
 }
 ```
 
-`{file}` is replaced with the normalized full path. The scanner is launched without a shell.
+`{file}` is replaced with the normalized absolute path. CLI adapters are
+started directly without a shell. Invalid regular expressions and timeout
+values are rejected before a scanner process starts.
 
----
+## Reports and integrity
 
-# Maintenance
+SigLens JSON reports use the versioned `siglens-report/v1` contract. Reports
+include tool version, UTC generation time, artifact hashes, evidence provenance,
+limitations, and timing information when available.
+
+```powershell
+siglens verify-report .\reports\sample.json
+siglens verify-report .\reports\sample.json --artifact C:\Samples\sample.exe
+```
+
+Artifact verification checks:
+
+- report schema and timestamp format;
+- duplicate JSON keys;
+- SHA-256 and reported size;
+- offset and range bounds;
+- rendered hexadecimal values;
+- `VA = image base + RVA` consistency.
+
+Read the [report contract](docs/report-schema.md) or consume the machine-readable
+[JSON Schema](schemas/siglens-report-v1.schema.json).
+
+## Operational scope
+
+- SigLens analyzes local artifacts and invokes only explicitly configured local
+  security engines.
+- Security products retain control of their own quarantine and remediation
+  policies; analyze copies of samples when preservation matters.
+- SigLens does not disable AV or EDR controls, patch AMSI, generate bypasses, or
+  rewrite analyzed binaries.
+- Inferred boundaries and candidate regions are diagnostic evidence. Confirm
+  surrounding code, data references, control flow, and source mapping before a
+  source-level change.
+- Native AMSI, Defender, PowerShell integration, and the Windows executable are
+  validated by the Windows CI jobs. Linux supports static analysis, tests, and
+  development packaging but cannot reproduce those Windows-native integrations.
+
+## Development
+
+```powershell
+.\scripts\Install.ps1 -Dev -SkipAVInstall
+.\scripts\Test.ps1
+.\scripts\Build.ps1
+```
+
+Or use the standard Python workflow:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pip install --no-deps --no-build-isolation -e .
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+CI runs Python 3.11 and 3.12 on Linux and Windows, builds the standalone bundle,
+and executes dedicated Windows-native AMSI and Defender checks.
+
+Maintenance commands:
 
 ```powershell
 .\scripts\Install-AVs.ps1
@@ -495,21 +345,12 @@ Edit `engines.json` to enable scanners installed locally.
 .\scripts\Uninstall.ps1
 ```
 
----
+## Project
 
-# Reports
+**SigLens 2.0** is created and maintained by **St0rn / CybersecurIT**.
 
-SigLens writes analysis artifacts under `reports\` in JSON and HTML formats.
+```powershell
+siglens about
+```
 
----
-
-# Operational notes
-
-- Analyze copies of samples whenever possible.
-- Local AV products may quarantine or remove files according to their configured policy.
-- SigLens does not disable AV/EDR controls.
-- SigLens does not patch or bypass AMSI.
-- SigLens does not automatically rewrite or obfuscate analyzed files.
-- Binary AV narrowing uses prefix scans to bound a reproducible `CLEAN -> DETECTED` transition; inferred boundaries are kept distinct from native engine offsets.
-- Script analysis uses full-buffer AMSI plus structural mapping rather than sub-buffer AMSI narrowing.
-- `CANDIDATE_REGION` means a region worth analyst review, not "signature found".
+Distributed under the [MIT License](LICENSE).
