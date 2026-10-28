@@ -6,7 +6,7 @@ from threading import Event
 from time import perf_counter
 from typing import Callable
 
-from . import __author__
+from . import __author__, __version__
 from .amsi_scan import scan_file as amsi_scan_file
 from .dissection import dissect_pe
 from .fileio import normalize_path, read_file_bytes
@@ -79,7 +79,7 @@ def analyze_artifact(
     strings = extract_strings(data, max(1, options.strings_limit))
     report = {
         **report_metadata("artifact_analysis"),
-        "tool": {"name": "SigLens", "author": __author__},
+        "tool": {"name": "SigLens", "version": __version__, "author": __author__},
         "file": {
             "path": str(path),
             "hashes": hashes(path, data),

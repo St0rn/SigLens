@@ -1,7 +1,10 @@
 from __future__ import annotations
-from pathlib import Path
 from datetime import datetime, timezone
 import json
+import os
+from pathlib import Path
+import tempfile
+
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 REPORT_SCHEMA_VERSION = "1.0.0"
@@ -23,17 +26,43 @@ def prepare_report(data: dict, report_type: str = "analysis") -> dict:
         data.setdefault(key, value)
     return data
 
+
+def _atomic_write_text(out: Path, content: str) -> None:
+    """Replace a report only after its complete content reaches disk."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="",
+            dir=out.parent,
+            prefix=f".{out.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, out)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+
+
 def save_json(data: dict, out: Path) -> Path:
     prepare_report(data)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+    content = json.dumps(data, indent=2, ensure_ascii=False, default=str) + "\n"
+    _atomic_write_text(out, content)
     return out
+
 
 def save_html(data: dict, out: Path) -> Path:
     prepare_report(data)
-    out.parent.mkdir(parents=True, exist_ok=True)
     template_dir = Path(__file__).parent / "templates"
     env = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=select_autoescape(["html"]))
     tpl = env.get_template("report.html")
-    out.write_text(tpl.render(report=data, generated=datetime.now().isoformat(timespec="seconds")), encoding="utf-8")
+    content = tpl.render(report=data, generated=datetime.now().isoformat(timespec="seconds"))
+    _atomic_write_text(out, content)
     return out

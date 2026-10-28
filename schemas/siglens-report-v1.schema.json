@@ -16,6 +16,7 @@
       "type": "object",
       "properties": {
         "name": {"type": "string"},
+        "version": {"type": "string"},
         "author": {"type": "string"}
       },
       "additionalProperties": true
@@ -76,8 +77,15 @@
           "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
           "file_offset": {"type": "integer", "minimum": 0},
           "file_offset_hex": {"type": "string"},
+          "range_start": {"type": ["integer", "null"], "minimum": 0},
+          "range_end": {"type": ["integer", "null"], "minimum": 0},
           "rva": {"type": ["integer", "null"]},
+          "rva_hex": {"type": ["string", "null"]},
           "va": {"type": ["integer", "null"]},
+          "va_hex": {"type": ["string", "null"]},
+          "image_base": {"type": ["integer", "null"]},
+          "image_base_hex": {"type": ["string", "null"]},
+          "ghidra_go_to": {"type": ["string", "null"]},
           "section": {"type": ["string", "null"]}
         },
         "additionalProperties": true

@@ -121,14 +121,10 @@ if ($Dev) {
 }
 if ($LASTEXITCODE -ne 0) { throw "Failed to install dependencies." }
 
-
-
-# Create a command shim without installing SigLens as a versioned Python package.
-$Shim = Join-Path $Venv "Scripts\siglens.cmd"
-$Launcher = Join-Path $Root "siglens_launcher.py"
-$ShimContent = "@echo off`r`n`"$Py`" `"$Launcher`" %*`r`n"
-Set-Content -LiteralPath $Shim -Value $ShimContent -Encoding ASCII
-Write-Host "[OK] CLI shim: $Shim" -ForegroundColor Green
+Write-Host "[*] Installing SigLens package and CLI..."
+& $Py -m pip install --no-deps --no-build-isolation --editable $Root
+if ($LASTEXITCODE -ne 0) { throw "Failed to install SigLens package." }
+Write-Host "[OK] CLI: $(Join-Path $Venv 'Scripts\siglens.exe')" -ForegroundColor Green
 
 New-Item -ItemType Directory -Force -Path (Join-Path $Root "reports") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Root "tools") | Out-Null

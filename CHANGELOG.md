@@ -2,6 +2,15 @@
 
 ## Current build
 
+- Added schema and semantic report verification, including duplicate-key,
+  artifact hash/size, offset/range, hexadecimal, and VA/RVA consistency checks.
+- Report JSON and HTML writes are now atomic to protect completed output from
+  interruption or partial writes.
+- Added hash-guarded Ghidra bookmark scripts that resolve reported RVAs against
+  the current program image base.
+- Added standard Python packaging metadata, a `siglens` console entry point,
+  editable development installation, and repository-local pytest discovery.
+- Removed tracked Python bytecode artifacts; generated caches remain ignored.
 - Added SHA-256-verified Ghidra location exports with file offset, RVA, VA,
   section, confidence, and strict evidence classification.
 - Added Ghidra locations to JSON/HTML reports and the desktop interface without

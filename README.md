@@ -187,12 +187,22 @@ Export verified navigation locations for Ghidra:
 
 ```powershell
 .\dist\SigLens.exe ghidra-offsets C:\Samples\sample.exe .\reports\sample.json `
-  --output .\reports\sample-ghidra.csv
+  --output .\reports\sample-ghidra.csv `
+  --script .\reports\ImportSigLens.py
 ```
 
 The export provides file offsets, RVA, VA, section, provenance, and confidence.
+The optional Ghidra script verifies the executable hash and creates categorized
+bookmarks using the current program image base.
 See [`docs/ghidra-workflow.md`](docs/ghidra-workflow.md) for the distinction
 between exact, native, inferred, candidate, and context-dependent locations.
+
+Validate a JSON report and optionally bind it to the exact artifact:
+
+```powershell
+.\dist\SigLens.exe verify-report .\reports\sample.json `
+  --artifact C:\Samples\sample.exe
+```
 
 ---
 

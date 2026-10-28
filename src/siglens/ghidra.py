@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import json
 from pathlib import Path
 
 from .addressing import file_offset_to_address
@@ -240,4 +241,73 @@ def save_ghidra_csv(locations: list[dict], output: Path) -> Path:
         writer.writeheader()
         for location in locations:
             writer.writerow({key: location.get(key) for key in columns})
+    return output
+
+
+def save_ghidra_script(
+    locations: list[dict],
+    expected_sha256: str,
+    output: Path,
+) -> Path:
+    """Write a Ghidra Jython script that adds verified RVA bookmarks."""
+    normalized_hash = str(expected_sha256).lower()
+    if len(normalized_hash) != 64 or any(char not in "0123456789abcdef" for char in normalized_hash):
+        raise ValueError("Expected artifact SHA-256 must contain 64 hexadecimal characters")
+
+    mapped = []
+    for location in locations:
+        rva = location.get("rva")
+        if type(rva) is not int or rva < 0:
+            continue
+        mapped.append({
+            "rva": rva,
+            "classification": str(location.get("classification") or "CANDIDATE_REGION"),
+            "file_offset_hex": str(location.get("file_offset_hex") or ""),
+            "confidence": location.get("confidence"),
+            "note": location.get("note"),
+            "provenance": location.get("provenance", {}),
+        })
+
+    encoded_locations = repr(json.dumps(mapped, ensure_ascii=True, separators=(",", ":")))
+    expected = repr(normalized_hash)
+    script = f'''# SigLens Ghidra bookmark importer
+#@category SigLens
+# Generated from a hash-verified SigLens report. Review bookmarks before editing source.
+
+import json
+
+EXPECTED_SHA256 = {expected}
+LOCATIONS = json.loads({encoded_locations})
+
+actual_sha256 = currentProgram.getExecutableSHA256()
+if not actual_sha256:
+    raise RuntimeError("SigLens refused import: Ghidra did not expose the executable SHA-256")
+if str(actual_sha256).lower() != EXPECTED_SHA256:
+    raise RuntimeError("SigLens refused import: current program SHA-256 does not match the report")
+
+image_base = currentProgram.getImageBase()
+memory = currentProgram.getMemory()
+bookmarks = currentProgram.getBookmarkManager()
+created = 0
+skipped = 0
+
+for item in LOCATIONS:
+    address = image_base.add(int(item["rva"]))
+    if not memory.contains(address):
+        skipped += 1
+        continue
+    details = {{
+        "file_offset": item.get("file_offset_hex"),
+        "confidence": item.get("confidence"),
+        "note": item.get("note"),
+        "provenance": item.get("provenance"),
+    }}
+    category = "SigLens/" + item["classification"]
+    bookmarks.setBookmark(address, "Note", category, json.dumps(details, sort_keys=True))
+    created += 1
+
+print("SigLens: created {{0}} bookmark(s), skipped {{1}} unmapped location(s)".format(created, skipped))
+'''
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(script, encoding="utf-8", newline="\n")
     return output

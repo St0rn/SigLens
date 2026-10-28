@@ -16,7 +16,9 @@ Generate a normal JSON report, then export its locations:
 
 ```powershell
 .\dist\SigLens.exe scan C:\Samples\sample.exe --yara .\rules --engines .\engines.json
-.\dist\SigLens.exe ghidra-offsets C:\Samples\sample.exe .\reports\sample.json -o .\reports\sample-ghidra.csv
+.\dist\SigLens.exe ghidra-offsets C:\Samples\sample.exe .\reports\sample.json `
+  -o .\reports\sample-ghidra.csv `
+  --script .\reports\ImportSigLens.py
 ```
 
 The export verifies the artifact SHA-256 against the report before using any
@@ -25,6 +27,13 @@ program uses the reported image base. If it was rebased, navigate to the current
 image base plus the reported RVA. Locations without an RVA/VA belong to raw file
 data such as an overlay and should be inspected through the file-bytes or hex
 view.
+
+The optional script checks Ghidra's executable SHA-256 against the report and
+stops on a mismatch. It then resolves each RVA against Ghidra's current image
+base and creates a `SigLens/<classification>` bookmark. Raw overlay locations
+remain in the CSV because they do not have a loaded memory address. In Ghidra,
+open **Window > Script Manager**, add the script directory if necessary, then
+run `ImportSigLens.py` against the analyzed program.
 
 An inferred boundary identifies the transition between tested prefixes. It does
 not prove that the byte at that address is independently malicious. Confirm the

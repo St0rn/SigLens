@@ -7,6 +7,7 @@ import pytest
 from siglens.ghidra import (
     build_ghidra_locations,
     save_ghidra_csv,
+    save_ghidra_script,
     verify_report_artifact,
 )
 
@@ -68,6 +69,37 @@ def test_builds_typed_ghidra_locations_and_csv(tmp_path):
 def test_rejects_report_for_a_different_artifact():
     with pytest.raises(ValueError, match="SHA-256 mismatch"):
         verify_report_artifact(_report(b"original"), b"different")
+
+
+def test_writes_hash_guarded_ghidra_bookmark_script(tmp_path):
+    locations = [
+        {
+            "classification": "EXACT_MATCH",
+            "rva": 0x1234,
+            "file_offset_hex": "0x400",
+            "confidence": 1.0,
+            "note": "Exact YARA match",
+            "provenance": {"type": "yara", "rule": "RuleOne"},
+        },
+        {
+            "classification": "CANDIDATE_REGION",
+            "rva": None,
+            "file_offset_hex": "0x900",
+            "provenance": {"type": "overlay"},
+        },
+    ]
+    expected_hash = "a" * 64
+    output = save_ghidra_script(locations, expected_hash, tmp_path / "ImportSigLens.py")
+    script = output.read_text(encoding="utf-8")
+    compile(script, str(output), "exec")
+    assert expected_hash in script
+    assert "getExecutableSHA256" in script
+    assert "setBookmark" in script
+    assert '"rva":4660' in script
+    assert '"rva":null' not in script
+
+    with pytest.raises(ValueError, match="64 hexadecimal"):
+        save_ghidra_script(locations, "not-a-hash", tmp_path / "Rejected.py")
 
 
 def test_schema_accepts_ghidra_locations(tmp_path):

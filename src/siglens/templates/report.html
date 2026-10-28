@@ -34,6 +34,7 @@ table{width:100%;border-collapse:collapse} td,th{border-bottom:1px solid #27365e
 <div class="card"><h2>Multi-AV</h2><p class="small">Aggregation of full-file scans. Offsets are shown only when an engine exposes them natively.</p><pre>{{ report.multiav | tojson(indent=2) }}</pre></div>
 <div class="card"><h2>capa</h2><pre>{{ report.capa | tojson(indent=2) }}</pre></div>
 <div class="card"><h2>Refactoring hints</h2><pre>{{ report.refactor_hints | tojson(indent=2) }}</pre></div>
+<div class="card"><h2>Limitations and timings</h2><pre>{{ {'limitations': report.get('limitations', []), 'timings': report.get('timings', {})} | tojson(indent=2) }}</pre></div>
 <div class="card"><h2>Strings</h2><pre>{{ report.strings_summary | tojson(indent=2) }}</pre></div>
 </main>
 </body>

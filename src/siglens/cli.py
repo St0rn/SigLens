@@ -8,7 +8,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
-from . import __author__, __product__
+from . import __author__, __product__, __version__
 from .utils import hashes, entropy
 from .fileio import read_file_bytes, normalize_path, path_diagnostics
 from .strings import extract_strings
@@ -27,7 +27,13 @@ from .component_scan import component_scan
 from .window_scan import window_scan, MIN_WINDOW_KIB, DEFAULT_WINDOW_KIB
 from .region_context import inspect_offset, DEFAULT_PREVIEW_BYTES
 from .script_analysis import analyze_script, is_script_path
-from .ghidra import build_ghidra_locations, save_ghidra_csv, verify_report_artifact
+from .ghidra import (
+    build_ghidra_locations,
+    save_ghidra_csv,
+    save_ghidra_script,
+    verify_report_artifact,
+)
+from .report_validation import ReportValidationError, load_report, validate_report
 
 app = typer.Typer(add_completion=False, help="SigLens - Windows Artifact Analysis and Multi-Engine Scanner")
 console = Console()
@@ -90,7 +96,7 @@ def scan(
     strings = extract_strings(data, max(strings_limit, 1))
     report = {
         **report_metadata("artifact_analysis"),
-        "tool": {"name": "SigLens", "author": __author__},
+        "tool": {"name": "SigLens", "version": __version__, "author": __author__},
         "file": {
             "path": str(file),
             "hashes": hashes(file, data),
@@ -1124,7 +1130,7 @@ def inspect_offset_command(
 @app.command("about")
 def about():
     """Display product attribution and product information."""
-    console.print(f"[bold]{__product__}[/bold]")
+    console.print(f"[bold]{__product__} {__version__}[/bold]")
     console.print(f"Created by {__author__}")
     console.print("Windows Artifact Analysis and Multi-Engine Scanner")
 
@@ -1273,11 +1279,13 @@ def ghidra_offsets_command(
     file: Path = typer.Argument(..., dir_okay=False, help="Exact artifact used for the report"),
     report: Path = typer.Argument(..., dir_okay=False, help="SigLens JSON report"),
     output: Path | None = typer.Option(None, "--output", "-o", help="Optional CSV export path"),
+    script: Path | None = typer.Option(None, "--script", help="Optional Ghidra bookmark-import script path"),
 ):
     """Verify and export candidate locations for Ghidra navigation."""
     file, data, _ = _open_input_or_exit(file)
     try:
-        payload = json.loads(report.read_text(encoding="utf-8"))
+        payload = load_report(report)
+        validate_report(payload, artifact_data=data)
         verify_report_artifact(payload, data)
         locations = build_ghidra_locations(file, data, payload)
     except Exception as exc:
@@ -1304,8 +1312,55 @@ def ghidra_offsets_command(
     if output:
         saved = save_ghidra_csv(locations, output)
         console.print(f"[green]CSV:[/green] {saved}")
+    if script:
+        expected_hash = payload["file"]["hashes"]["sha256"]
+        saved_script = save_ghidra_script(locations, expected_hash, script)
+        mapped = sum(type(location.get("rva")) is int for location in locations)
+        console.print(f"[green]Ghidra script:[/green] {saved_script} ({mapped} mapped bookmark(s))")
     if not locations:
         console.print("[yellow]No exact, native, inferred, or candidate offsets were present.[/yellow]")
+
+
+@app.command("verify-report")
+def verify_report_command(
+    report: Path = typer.Argument(..., dir_okay=False, help="SigLens JSON report"),
+    artifact: Path | None = typer.Option(
+        None,
+        "--artifact",
+        "-a",
+        dir_okay=False,
+        help="Verify report hash, size, ranges, and addresses against this artifact",
+    ),
+):
+    """Validate a report schema and optionally bind it to its exact artifact."""
+    try:
+        payload = load_report(report)
+        artifact_data = None
+        if artifact is not None:
+            _, artifact_data, _ = _open_input_or_exit(artifact)
+        summary = validate_report(payload, artifact_data=artifact_data)
+    except ReportValidationError as exc:
+        console.print("[red]Report validation failed:[/red]")
+        for issue in exc.issues[:30]:
+            console.print(f"  [red]x[/red] {issue}")
+        if len(exc.issues) > 30:
+            console.print(f"  ... {len(exc.issues) - 30} additional issue(s)")
+        raise typer.Exit(code=2)
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        console.print(f"[red]Report verification error:[/red] {type(exc).__name__}: {exc}")
+        raise typer.Exit(code=2)
+
+    table = Table(title=f"{__product__} - Report verification")
+    table.add_column("Check")
+    table.add_column("Result")
+    table.add_row("Schema", f"{summary['schema']} ({summary['schema_version']})")
+    table.add_row("Report type", str(summary["report_type"]))
+    table.add_row("Ghidra locations", str(summary["ghidra_location_count"]))
+    table.add_row("Artifact", "SHA-256 and size verified" if artifact_data is not None else "not supplied")
+    table.add_row("Result", "VALID")
+    console.print(table)
 
 
 @app.command()

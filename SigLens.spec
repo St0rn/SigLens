@@ -3,7 +3,10 @@ from PyInstaller.utils.hooks import collect_all
 from pathlib import Path
 import sys
 
-datas = [('src/siglens/templates', 'siglens/templates')]
+datas = [
+    ('src/siglens/templates', 'siglens/templates'),
+    ('schemas', 'schemas'),
+]
 binaries = []
 hiddenimports = []
 

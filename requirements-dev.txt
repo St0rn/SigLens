@@ -1,4 +1,5 @@
 -r requirements.txt
+setuptools>=68
+wheel>=0.42
 pyinstaller>=6.10
 pytest>=8.0
-jsonschema>=4.23
