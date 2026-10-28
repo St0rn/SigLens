@@ -14,7 +14,7 @@ from .strings import extract_strings
 from .pe_analyzer import analyze_pe
 from .yara_scan import scan as yara_scan
 from .external_tools import defender_scan, defender_status, clamav_scan, capa_scan
-from .report import save_json, save_html
+from .report import save_json, save_html, report_metadata
 from .compare import compare_files
 from .refactor import build_refactor_hints
 from .amsi_scan import scan_file as amsi_scan_file
@@ -87,6 +87,7 @@ def scan(
     pe = analyze_pe(file, data)
     strings = extract_strings(data, max(strings_limit, 1))
     report = {
+        **report_metadata("artifact_analysis"),
         "tool": {"name": "SigLens", "author": __author__},
         "file": {
             "path": str(file),
@@ -1322,6 +1323,20 @@ def doctor():
         console.print(f"Defender: {st['status']}")
     else:
         console.print(f"Defender: unavailable or unreadable ({st.get('error') or st.get('stderr','').strip()})")
+
+
+@app.command("gui")
+def gui_command(
+    file: Path | None = typer.Argument(None, dir_okay=False),
+):
+    """Launch the optional desktop analyst interface."""
+    try:
+        from .gui import launch_gui
+
+        launch_gui(file)
+    except Exception as exc:
+        console.print(f"[red]GUI unavailable:[/red] {type(exc).__name__}: {exc}")
+        raise typer.Exit(code=2)
 
 
 

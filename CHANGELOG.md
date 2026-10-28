@@ -2,6 +2,15 @@
 
 ## Current build
 
+- Added an optional dark desktop interface with dashboard, AV, AMSI, PE,
+  detection-map, hex-viewer, and report tabs; analysis runs in a worker with
+  cooperative cancellation.
+- Added repeated prefix measurements, confidence values, controlled probes, and
+  explicit `CONTEXT_DEPENDENT` results for unstable or non-monotonic AV verdicts.
+- Added the versioned `siglens-report/v1` JSON schema and schema metadata to
+  saved reports.
+- Added Linux/Windows CI, standalone packaging smoke tests, and native Windows
+  AMSI/Defender integration checks.
 - Corrected fixed-window sizing so `window_kib` is consistently interpreted as
   KiB in segmentation and report metadata.
 - Scanner timeouts and launch failures now remain `ERROR` results, with elapsed

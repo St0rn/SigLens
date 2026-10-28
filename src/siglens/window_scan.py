@@ -6,6 +6,7 @@ import shutil
 import tempfile
 
 from .multiav import scan_engines
+from .narrowing import find_non_monotonic_evidence, summarize_measurements
 from .utils import entropy
 from .region_context import map_file_offset, inspect_offset, DEFAULT_PREVIEW_BYTES
 
@@ -90,6 +91,8 @@ def window_scan(
     window_kib: int = DEFAULT_WINDOW_KIB,
     max_windows: int = 2048,
     preview_bytes: int = DEFAULT_PREVIEW_BYTES,
+    stability_attempts: int = MAX_PREFIX_ATTEMPTS,
+    non_monotonic_probes: int = 3,
 ) -> dict:
     """
     Bounded prefix-based AV detection-boundary narrowing.
@@ -108,12 +111,17 @@ def window_scan(
     offset supplied by the AV engine.
     """
 
+    stability_attempts = max(1, int(stability_attempts))
+    non_monotonic_probes = max(0, int(non_monotonic_probes))
+    required_consensus = (stability_attempts // 2) + 1
     minimum_prefix_bytes = MIN_PREFIX_BYTES
     minimum_prefix_kib = minimum_prefix_bytes // 1024
 
     results: list[dict] = []
     candidates: list[dict] = []
     scan_count = 0
+    stable_observations: list[dict] = []
+    measurement_cache: dict[int, dict] = {}
 
     temp_root = Path(
         tempfile.mkdtemp(
@@ -456,6 +464,63 @@ def window_scan(
 
         return result
 
+    def measure_prefix_stability(
+        end: int,
+        depth: int,
+        initial: dict | None = None,
+    ) -> dict | None:
+        end = min(len(data), max(1, int(end)))
+        if end in measurement_cache:
+            return measurement_cache[end]
+
+        rows = [initial] if initial is not None else []
+        while len(rows) < stability_attempts and scan_count < max_windows:
+            current = scan_prefix(end, depth)
+            if current is not None:
+                rows.append(current)
+
+        if not rows:
+            return None
+
+        stability = summarize_measurements(rows, required_consensus)
+        representative = next(
+            (
+                row for row in reversed(rows)
+                if row.get("verdict") == stability["verdict"]
+            ),
+            rows[-1],
+        )
+        measured = dict(representative)
+        measured.update({
+            "detected": stability["verdict"] == "DETECTED",
+            "clean": stability["verdict"] == "CLEAN",
+            "indeterminate": stability["verdict"] == "INDETERMINATE",
+            "verdict": stability["verdict"],
+            "classification": stability["verdict"],
+            "stability": stability,
+            "measurement_indices": [row.get("index") for row in rows],
+        })
+        measurement_cache[end] = measured
+        if stability["stable"]:
+            stable_observations.append({
+                "prefix_length": end,
+                "verdict": stability["verdict"],
+                "confidence": stability["confidence"],
+            })
+        return measured
+
+    def context_dependent_candidate(
+        source: dict,
+        reason: str,
+        evidence: list[dict] | None = None,
+    ) -> dict:
+        candidate = dict(source)
+        candidate["classification"] = "CONTEXT_DEPENDENT"
+        candidate["reason"] = reason
+        candidate["non_monotonic_evidence"] = evidence or []
+        candidate["observations"] = list(stable_observations)
+        return candidate
+
     def narrow(
         parent: dict,
         depth: int,
@@ -491,36 +556,11 @@ def window_scan(
             if midpoint <= low or midpoint >= high:
                 break
 
-            # Retry the same midpoint when the AV engine returns an
-            # indeterminate result. A retry that becomes DETECTED or CLEAN
-            # is accepted; INDETERMINATE is never treated as CLEAN.
-            prefix = None
-            attempts = 0
-
-            while attempts < MAX_PREFIX_ATTEMPTS:
-                if scan_count >= max_windows:
-                    break
-
-                attempts += 1
-
-                current = scan_prefix(
-                    midpoint,
-                    depth + 1,
-                )
-
-                if current is None:
-                    continue
-
-                prefix = current
-
-                if current.get("detected") or current.get("clean"):
-                    break
-
-                print(
-                    f"[SigLens] retry={attempts}/{MAX_PREFIX_ATTEMPTS} "
-                    f"prefix=0x{midpoint:08X} verdict=INDETERMINATE",
-                    flush=True,
-                )
+            prefix = measure_prefix_stability(midpoint, depth + 1)
+            attempts = (
+                prefix.get("stability", {}).get("attempts", 0)
+                if prefix is not None else 0
+            )
 
             if prefix is None:
                 candidate = dict(best_detected)
@@ -534,6 +574,24 @@ def window_scan(
                 )
                 candidate["first_detected_prefix"] = best_detected.get("end")
                 candidates.append(candidate)
+                return
+
+            if prefix.get("stability", {}).get("unstable"):
+                candidates.append(context_dependent_candidate(
+                    prefix,
+                    "Repeated scans of the same prefix produced both CLEAN and "
+                    "DETECTED verdicts.",
+                ))
+                return
+
+            non_monotonic = find_non_monotonic_evidence(stable_observations)
+            if non_monotonic:
+                candidates.append(context_dependent_candidate(
+                    prefix,
+                    "Observed prefix verdicts are non-monotonic; a single byte "
+                    "boundary cannot be attributed reliably.",
+                    non_monotonic,
+                ))
                 return
 
             if prefix.get("detected"):
@@ -671,14 +729,14 @@ def window_scan(
                 "note": "The input file is empty.",
             }
 
-        root = scan_region(
+        root_initial = scan_region(
             0,
             len(data),
             0,
             "root",
         )
 
-        if root is None:
+        if root_initial is None:
             return {
                 "mode": "prefix_boundary_narrowing",
                 "display_title": "SigLens - Detection Boundary Narrowing",
@@ -704,7 +762,18 @@ def window_scan(
                 "note": "The initial full-file scan could not be performed.",
             }
 
-        if root.get("indeterminate"):
+        root = measure_prefix_stability(len(data), 0, initial=root_initial)
+        if root is None:
+            candidates.append({
+                "classification": "SCAN_LIMIT_REACHED",
+                "reason": "The full-file stability measurement could not complete.",
+            })
+        elif root.get("stability", {}).get("unstable"):
+            candidates.append(context_dependent_candidate(
+                root,
+                "Repeated full-file scans produced both CLEAN and DETECTED verdicts.",
+            ))
+        elif root.get("indeterminate"):
             candidates.append(
                 {
                     **root,
@@ -746,10 +815,23 @@ def window_scan(
             }
 
         elif root.get("detected"):
-            narrow(
-                root,
-                0,
-            )
+            for probe_index in range(1, non_monotonic_probes + 1):
+                probe_end = max(
+                    1,
+                    (len(data) * probe_index) // (non_monotonic_probes + 1),
+                )
+                measure_prefix_stability(probe_end, 1)
+
+            non_monotonic = find_non_monotonic_evidence(stable_observations)
+            if non_monotonic:
+                candidates.append(context_dependent_candidate(
+                    root,
+                    "Controlled prefix probes observed a DETECTED shorter prefix "
+                    "followed by a CLEAN longer prefix.",
+                    non_monotonic,
+                ))
+            else:
+                narrow(root, 0)
 
         else:
             candidates.append(
@@ -823,6 +905,10 @@ def window_scan(
         "minimum_window_kib": minimum_prefix_kib,
         "minimum_window_bytes": minimum_prefix_bytes,
         "context_preview_bytes": preview_bytes,
+        "stability_attempts": stability_attempts,
+        "required_consensus": required_consensus,
+        "non_monotonic_probes": non_monotonic_probes,
+        "prefix_observations": stable_observations,
 
         "file_size": len(data),
         "scan_count": scan_count,

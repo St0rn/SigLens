@@ -104,6 +104,10 @@ The build also copies `engines.json` and `engines.example.json` into `dist\`.
 .\scripts\Test.ps1
 ```
 
+CI runs the unit suite and standalone packaging smoke tests on Python 3.11 and
+3.12 for Linux and Windows. A separate Windows job submits a benign complete
+buffer to AMSI and inspects Defender status when the runner exposes it.
+
 ---
 
 ## Quick start
@@ -111,6 +115,17 @@ The build also copies `engines.json` and `engines.example.json` into `dist\`.
 ```powershell
 .\dist\SigLens.exe scan C:\Samples\sample.exe
 ```
+
+Optional desktop interface:
+
+```powershell
+.\dist\SigLens.exe gui
+.\dist\SigLens.exe gui C:\Samples\sample.exe
+```
+
+The desktop analysis runs on a worker thread and supports cooperative
+cancellation between analysis stages. It keeps AV, AMSI, PE, hex, map, and
+report views separate from the reusable analysis engine.
 
 Full static/engine analysis:
 
@@ -159,6 +174,14 @@ Example:
 ```
 
 Reports are written to `reports\` in JSON and HTML formats.
+JSON output follows the versioned `siglens-report/v1` contract documented in
+[`docs/report-schema.md`](docs/report-schema.md).
+
+Prefix narrowing repeats each measured prefix, records confidence, and samples
+controlled checkpoints. Conflicting repeated verdicts or an observed shorter
+`DETECTED` prefix followed by a longer `CLEAN` prefix are classified
+`CONTEXT_DEPENDENT`; SigLens does not report a single inferred boundary in that
+case.
 
 ---
 

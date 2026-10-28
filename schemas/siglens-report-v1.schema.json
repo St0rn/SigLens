@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/St0rn/SigLens/schemas/siglens-report-v1.schema.json",
+  "title": "SigLens report schema v1",
+  "type": "object",
+  "required": ["schema", "schema_version", "report_type", "generated_at"],
+  "properties": {
+    "schema": {"const": "siglens-report/v1"},
+    "schema_version": {"type": "string", "pattern": "^1\\."},
+    "report_type": {
+      "type": "string",
+      "enum": ["analysis", "artifact_analysis", "script_analysis", "comparison"]
+    },
+    "generated_at": {"type": "string", "format": "date-time"},
+    "tool": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "author": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "file": {
+      "type": "object",
+      "properties": {
+        "path": {"type": "string"},
+        "entropy": {"type": "number"},
+        "hashes": {
+          "type": "object",
+          "required": ["sha256", "size"],
+          "properties": {
+            "md5": {"type": "string"},
+            "sha1": {"type": "string"},
+            "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "size": {"type": "integer", "minimum": 0}
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "multiav": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": ["clean", "detected", "unknown", "unavailable", "error"]
+              },
+              "offset_source": {
+                "type": ["string", "null"],
+                "enum": ["native_engine_output", null]
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "limitations": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

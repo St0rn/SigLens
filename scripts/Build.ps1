@@ -15,15 +15,7 @@ if ($LASTEXITCODE -ne 0) { throw "Failed to install/update PyInstaller." }
 
 Push-Location $Root
 try {
-    & $Py -m PyInstaller `
-        --noconfirm `
-        --clean `
-        --onefile `
-        --name "SigLens" `
-        --paths "src" `
-        --collect-all yara `
-        --add-data "src\siglens\templates;siglens\templates" `
-        "siglens_launcher.py"
+    & $Py -m PyInstaller --noconfirm --clean (Join-Path $Root "SigLens.spec")
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed." }
 } finally {
     Pop-Location
@@ -32,6 +24,8 @@ try {
 $Dist = Join-Path $Root "dist"
 Copy-Item (Join-Path $Root "engines.example.json") (Join-Path $Dist "engines.example.json") -Force
 Copy-Item (Join-Path $Root "engines.json") (Join-Path $Dist "engines.json") -Force
+Copy-Item (Join-Path $Root "schemas") (Join-Path $Dist "schemas") -Recurse -Force
 
 Write-Host "[OK] Build: $Dist\SigLens.exe" -ForegroundColor Green
 Write-Host "[OK] Multi-AV config: $Dist\engines.json" -ForegroundColor Green
+Write-Host "[OK] Report schema: $Dist\schemas\siglens-report-v1.schema.json" -ForegroundColor Green

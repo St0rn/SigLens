@@ -16,7 +16,7 @@ table{width:100%;border-collapse:collapse} td,th{border-bottom:1px solid #27365e
 </style>
 </head>
 <body>
-<header><h1>SigLens</h1><div>Created by St0rn / CybersecurIT - {{ generated }}</div></header>
+<header><h1>SigLens</h1><div>Created by St0rn / CybersecurIT - {{ generated }}</div><div class="small">Schema {{ report.schema }} / {{ report.schema_version }}</div></header>
 <main>
 <div class="card"><h2>File</h2><pre>{{ report.file | tojson(indent=2) }}</pre></div>
 <div class="card"><h2>PE</h2><pre>{{ report.pe | tojson(indent=2) }}</pre></div>
