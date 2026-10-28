@@ -34,7 +34,10 @@ where = ["src"]
 siglens = ["templates/*.html"]
 
 [tool.setuptools.data-files]
-"share/siglens/schemas" = ["schemas/siglens-report-v1.schema.json"]
+"share/siglens/schemas" = [
+  "schemas/siglens-report-v1.schema.json",
+  "schemas/siglens-source-map-v1.schema.json",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

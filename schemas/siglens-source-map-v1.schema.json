@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/St0rn/SigLens/schemas/siglens-source-map-v1.schema.json",
+  "title": "SigLens source map schema v1",
+  "type": "object",
+  "required": ["schema", "artifact_sha256", "entries"],
+  "properties": {
+    "schema": {"const": "siglens-source-map/v1"},
+    "artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "language": {"type": "string", "enum": ["c", "cpp", "csharp"]},
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "language": {"type": "string", "enum": ["c", "cpp", "csharp"]},
+          "symbol": {"type": ["string", "null"]},
+          "source_file": {"type": ["string", "null"]},
+          "source_start_line": {"type": ["integer", "null"], "minimum": 1},
+          "source_end_line": {"type": ["integer", "null"], "minimum": 1},
+          "rva_start": {"type": "integer", "minimum": 0},
+          "rva_end": {"type": "integer", "minimum": 1},
+          "file_offset_start": {"type": "integer", "minimum": 0},
+          "file_offset_end": {"type": "integer", "minimum": 1}
+        },
+        "anyOf": [
+          {"required": ["rva_start", "rva_end"]},
+          {"required": ["file_offset_start", "file_offset_end"]}
+        ],
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

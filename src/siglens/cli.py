@@ -36,6 +36,11 @@ from .ghidra import (
 from .report_validation import ReportValidationError, load_report, validate_report
 from .report_diff import compare_reports
 from .sarif import build_sarif
+from .source_attribution import (
+    attribute_source_locations,
+    load_source_map,
+    parse_msvc_map,
+)
 
 app = typer.Typer(add_completion=False, help="SigLens - Windows Artifact Analysis and Multi-Engine Scanner")
 console = Console()
@@ -1436,6 +1441,89 @@ def export_sarif_command(
         f"[dim]{len(run['results'])} result(s), "
         f"{len(run['tool']['driver']['rules'])} rule(s), SARIF {document['version']}[/dim]"
     )
+
+
+@app.command("attribute-source")
+def attribute_source_command(
+    file: Path = typer.Argument(..., dir_okay=False, help="Exact artifact used for the report"),
+    report: Path = typer.Argument(..., dir_okay=False, help="SigLens JSON report"),
+    symbol_path: Path | None = typer.Option(None, "--symbol-path", help="Local native PDB directory"),
+    source_map_path: Path | None = typer.Option(
+        None,
+        "--source-map",
+        help="SHA-256-bound C/C++ or C# source map JSON",
+    ),
+    linker_map_path: Path | None = typer.Option(
+        None,
+        "--linker-map",
+        help="Microsoft linker MAP file for native symbol attribution",
+    ),
+    source_root: Path | None = typer.Option(
+        None,
+        "--source-root",
+        file_okay=False,
+        help="Source tree used to resolve files and candidate declarations",
+    ),
+    context_lines: int = typer.Option(3, "--context-lines", min=0, max=20),
+    output: Path | None = typer.Option(None, "--output", "-o", help="Attribution JSON path"),
+):
+    """Map verified detection locations back to C/C++/C# functions and source."""
+    file, data, _ = _open_input_or_exit(file)
+    try:
+        payload = load_report(report)
+        validate_report(payload, artifact_data=data)
+        verify_report_artifact(payload, data)
+        if not payload.get("ghidra_locations"):
+            payload["ghidra_locations"] = build_ghidra_locations(file, data, payload)
+        source_map = load_source_map(source_map_path, data) if source_map_path else None
+        linker_map = parse_msvc_map(linker_map_path) if linker_map_path else []
+        attribution = attribute_source_locations(
+            file,
+            data,
+            payload,
+            symbol_path=symbol_path,
+            source_map=source_map,
+            linker_map=linker_map,
+            source_root=source_root,
+            context_lines=context_lines,
+        )
+    except ReportValidationError as exc:
+        console.print("[red]Report validation failed:[/red]")
+        for issue in exc.issues[:30]:
+            console.print(f"  [red]x[/red] {issue}")
+        raise typer.Exit(code=2)
+    except Exception as exc:
+        console.print(f"[red]Source attribution error:[/red] {type(exc).__name__}: {exc}")
+        raise typer.Exit(code=2)
+
+    if output is None:
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        output = Path.cwd() / "reports" / f"source-attribution-{file.stem}-{stamp}.json"
+    save_json(attribution, output)
+
+    table = Table(title=f"{__product__} - Source attribution")
+    table.add_column("Class")
+    table.add_column("Offset")
+    table.add_column("Ghidra")
+    table.add_column("Function / source")
+    table.add_column("Confidence")
+    for item in attribution["attributions"]:
+        primary = item.get("primary_source") or {}
+        symbol = primary.get("symbol") or (item.get("runtime_function") or {}).get("label") or "-"
+        source = primary.get("resolved_source_file") or primary.get("source_file")
+        line = primary.get("source_line")
+        display = f"{symbol}\n{source}:{line}" if source and line else symbol
+        table.add_row(
+            str(item.get("classification") or "-"),
+            str(item.get("file_offset_hex") or "-"),
+            str(item.get("ghidra_go_to") or "file bytes"),
+            display,
+            str(item.get("attribution_confidence") or "none").upper(),
+        )
+    console.print(table)
+    console.print(f"[green]JSON:[/green] {output}")
+    if not attribution["attributions"]:
+        console.print("[yellow]The report did not contain attributable locations.[/yellow]")
 
 
 @app.command()

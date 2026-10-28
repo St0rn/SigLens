@@ -76,6 +76,7 @@ flowchart LR
 - File offset → section → RVA → VA conversion.
 - x64 runtime-function boundaries from PE exception metadata.
 - Local PDB symbol and source-line resolution when available.
+- C/C++ MSVC MAP and C# sequence-point source-map attribution.
 - Local byte context with hexdump and printable strings.
 
 ### Security-engine analysis
@@ -229,6 +230,26 @@ siglens export-sarif .\reports\candidate.json `
 SARIF results preserve byte offsets, confidence, RVA/VA data, engine signatures,
 provenance, and deterministic fingerprints for result tracking.
 
+## Source attribution
+
+Map every verified or inferred report location back to native symbols, managed
+methods, and source candidates:
+
+```powershell
+siglens attribute-source C:\Samples\sample.exe .\reports\sample.json `
+  --symbol-path .\symbols `
+  --linker-map .\build\sample.map `
+  --source-map .\build\sample.siglens-source-map.json `
+  --source-root C:\Code\Project
+```
+
+Native C/C++ builds use DbgHelp PDB lines and MSVC MAP symbols. Managed C# builds
+can supply SHA-256-bound method RVA and Portable PDB sequence-point data through
+`siglens-source-map/v1`. Fallback source searches are explicitly classified as
+low-confidence candidates. Attribution reports can also be exported to SARIF
+with related binary and source locations. See the
+[source attribution workflow](docs/source-attribution.md).
+
 ## Command reference
 
 | Command | Purpose |
@@ -246,6 +267,7 @@ provenance, and deterministic fingerprints for result tracking.
 | `verify-report` | Validate schema, hashes, ranges, and address consistency |
 | `compare-reports` | Compare AV, AMSI, YARA, import, and location evidence |
 | `export-sarif` | Export findings and provenance as SARIF 2.1.0 |
+| `attribute-source` | Map report locations to C/C++/C# functions and source |
 | `compare` | Compare two builds and report changed binary ranges |
 | `path-test` | Diagnose Windows path and file-access behavior |
 | `doctor` | Inspect runtime and integration availability |

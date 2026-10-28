@@ -61,3 +61,23 @@ def test_sarif_fingerprints_are_deterministic():
     first = build_sarif(_report())
     second = build_sarif(_report())
     assert first == second
+
+
+def test_sarif_links_attributed_source():
+    report = _report()
+    report["attributions"] = [{
+        "file_offset": 2,
+        "primary_source": {
+            "method": "verified_source_map",
+            "confidence": "high",
+            "symbol": "Demo.Program.Run",
+            "resolved_source_file": "C:\\Code\\Program.cs",
+            "source_line": 42,
+            "source_end_line": 45,
+        },
+    }]
+    result = build_sarif(report)["runs"][0]["results"][0]
+    assert result["properties"]["sourceAttribution"]["symbol"] == "Demo.Program.Run"
+    related = result["relatedLocations"][0]["physicalLocation"]
+    assert related["artifactLocation"]["uri"] == "C:/Code/Program.cs"
+    assert related["region"] == {"startLine": 42, "endLine": 45}

@@ -50,6 +50,13 @@ def build_sarif(report: dict) -> dict:
         artifact["hashes"] = {"sha-256": artifact_hash}
     rules: dict[str, dict] = {}
     results = []
+    source_by_offset = {
+        item.get("file_offset"): item.get("primary_source")
+        for item in report.get("attributions", [])
+        if isinstance(item, dict)
+        and type(item.get("file_offset")) is int
+        and isinstance(item.get("primary_source"), dict)
+    }
 
     for location in report.get("ghidra_locations", []):
         if not isinstance(location, dict):
@@ -73,7 +80,7 @@ def build_sarif(report: dict) -> dict:
         physical = {"artifactLocation": {"uri": artifact_uri}}
         if region:
             physical["region"] = region
-        results.append({
+        result = {
             "ruleId": rule_id,
             "level": "warning" if classification in {"EXACT_MATCH", "NATIVE_ENGINE_OFFSET"} else "note",
             "message": {"text": location.get("note") or f"SigLens {classification} location"},
@@ -92,7 +99,32 @@ def build_sarif(report: dict) -> dict:
                 "section": location.get("section"),
                 "provenance": location.get("provenance", {}),
             },
-        })
+        }
+        source = source_by_offset.get(offset)
+        if source:
+            result["properties"]["sourceAttribution"] = {
+                "confidence": source.get("confidence"),
+                "method": source.get("method"),
+                "symbol": source.get("symbol"),
+                "sourceFile": source.get("resolved_source_file") or source.get("source_file"),
+                "sourceLine": source.get("source_line"),
+            }
+            source_file = source.get("resolved_source_file") or source.get("source_file")
+            source_line = source.get("source_line")
+            if source_file and type(source_line) is int:
+                source_region = {"startLine": source_line}
+                end_line = source.get("source_end_line")
+                if type(end_line) is int and end_line >= source_line:
+                    source_region["endLine"] = end_line
+                result["relatedLocations"] = [{
+                    "id": 1,
+                    "message": {"text": "Attributed source location"},
+                    "physicalLocation": {
+                        "artifactLocation": {"uri": str(source_file).replace("\\", "/")},
+                        "region": source_region,
+                    },
+                }]
+        results.append(result)
 
     for engine in report.get("multiav", {}).get("results", []):
         if not isinstance(engine, dict) or str(engine.get("status")).lower() != "detected":

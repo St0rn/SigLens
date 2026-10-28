@@ -302,6 +302,9 @@ for item in LOCATIONS:
         "note": item.get("note"),
         "provenance": item.get("provenance"),
     }}
+    function = getFunctionContaining(address)
+    if function:
+        details["ghidra_function"] = str(function.getName(True))
     category = "SigLens/" + item["classification"]
     bookmarks.setBookmark(address, "Note", category, json.dumps(details, sort_keys=True))
     created += 1

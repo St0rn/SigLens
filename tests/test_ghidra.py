@@ -94,6 +94,7 @@ def test_writes_hash_guarded_ghidra_bookmark_script(tmp_path):
     compile(script, str(output), "exec")
     assert expected_hash in script
     assert "getExecutableSHA256" in script
+    assert "getFunctionContaining" in script
     assert "setBookmark" in script
     assert '"rva":4660' in script
     assert '"rva":null' not in script

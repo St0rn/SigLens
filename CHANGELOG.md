@@ -2,6 +2,10 @@
 
 ## Current build
 
+- Added source attribution from verified report offsets to C/C++ native PDB
+  lines, MSVC MAP symbols, and SHA-256-bound C# sequence-point maps.
+- Added bounded C/C++/C# declaration search with explicit attribution confidence
+  and source context, while retaining the Ghidra address and evidence class.
 - Added cross-build report comparison for AV verdicts and signatures, AMSI,
   YARA rules, PE imports, and location classifications.
 - Added SARIF 2.1.0 export with byte offsets, RVA/VA context, confidence,

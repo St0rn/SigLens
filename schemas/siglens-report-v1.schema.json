@@ -9,7 +9,7 @@
     "schema_version": {"type": "string", "pattern": "^1\\."},
     "report_type": {
       "type": "string",
-      "enum": ["analysis", "artifact_analysis", "script_analysis", "comparison"]
+      "enum": ["analysis", "artifact_analysis", "script_analysis", "comparison", "source_attribution"]
     },
     "generated_at": {"type": "string", "format": "date-time"},
     "tool": {
