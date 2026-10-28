@@ -22,6 +22,7 @@ table{width:100%;border-collapse:collapse} td,th{border-bottom:1px solid #27365e
 <div class="card"><h2>PE</h2><pre>{{ report.pe | tojson(indent=2) }}</pre></div>
 <div class="card"><h2>YARA</h2><pre>{{ report.yara | tojson(indent=2) }}</pre></div>
 <div class="card"><h2>Offset -> RVA -> function -> PDB/source correlation</h2><p class="small">Function boundaries from .pdata/.xdata are considered more reliable than export-based heuristics. PDB information is shown only when DbgHelp resolves it locally.</p><pre>{{ report.correlations | tojson(indent=2) }}</pre></div>
+<div class="card"><h2>Ghidra locations</h2><p class="small">Use VA in Ghidra Go To when the image base matches. Otherwise use image base + RVA. Inferred boundaries and candidate regions are observations, not confirmed native engine offsets.</p><pre>{{ report.ghidra_locations | tojson(indent=2) }}</pre></div>
 <div class="card"><h2>Defender</h2><pre>{{ report.defender | tojson(indent=2) }}</pre></div>
 <div class="card"><h2>ClamAV</h2><pre>{{ report.clamav | tojson(indent=2) }}</pre></div>
 <div class="card"><h2>AMSI</h2><pre>{{ report.amsi | tojson(indent=2) }}</pre></div>

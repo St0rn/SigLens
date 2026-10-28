@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 from datetime import datetime
+import json
 import platform
 import typer
 from rich.console import Console
@@ -26,6 +27,7 @@ from .component_scan import component_scan
 from .window_scan import window_scan, MIN_WINDOW_KIB, DEFAULT_WINDOW_KIB
 from .region_context import inspect_offset, DEFAULT_PREVIEW_BYTES
 from .script_analysis import analyze_script, is_script_path
+from .ghidra import build_ghidra_locations, save_ghidra_csv, verify_report_artifact
 
 app = typer.Typer(add_completion=False, help="SigLens - Windows Artifact Analysis and Multi-Engine Scanner")
 console = Console()
@@ -108,6 +110,7 @@ def scan(
         "component_scan": {},
         "window_scan": {},
         "script_analysis": {},
+        "ghidra_locations": [],
         "strings_summary": {
             "ascii_count_shown": len(strings["ascii"]),
             "utf16_count_shown": len(strings["utf16le"]),
@@ -188,6 +191,7 @@ def scan(
         )
 
     report["refactor_hints"] = build_refactor_hints(report)
+    report["ghidra_locations"] = build_ghidra_locations(file, data, report)
 
     j, h = _report_paths(file)
     save_json(report, j)
@@ -1262,6 +1266,46 @@ def locate(
         raise typer.BadParameter("Offset is outside the file")
     result = correlate_offset(file, value, symbol_path=symbol_path, data=data)
     console.print_json(data=result)
+
+
+@app.command("ghidra-offsets")
+def ghidra_offsets_command(
+    file: Path = typer.Argument(..., dir_okay=False, help="Exact artifact used for the report"),
+    report: Path = typer.Argument(..., dir_okay=False, help="SigLens JSON report"),
+    output: Path | None = typer.Option(None, "--output", "-o", help="Optional CSV export path"),
+):
+    """Verify and export candidate locations for Ghidra navigation."""
+    file, data, _ = _open_input_or_exit(file)
+    try:
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        verify_report_artifact(payload, data)
+        locations = build_ghidra_locations(file, data, payload)
+    except Exception as exc:
+        console.print(f"[red]Ghidra export error:[/red] {type(exc).__name__}: {exc}")
+        raise typer.Exit(code=2)
+
+    table = Table(title=f"{__product__} - Ghidra locations")
+    table.add_column("Class")
+    table.add_column("File offset")
+    table.add_column("RVA")
+    table.add_column("VA / Go To")
+    table.add_column("Section")
+    table.add_column("Confidence")
+    for location in locations:
+        table.add_row(
+            str(location.get("classification")),
+            str(location.get("file_offset_hex") or "-"),
+            str(location.get("rva_hex") or "-"),
+            str(location.get("ghidra_go_to") or "file bytes"),
+            str(location.get("section") or "-"),
+            str(location.get("confidence") if location.get("confidence") is not None else "-")
+        )
+    console.print(table)
+    if output:
+        saved = save_ghidra_csv(locations, output)
+        console.print(f"[green]CSV:[/green] {saved}")
+    if not locations:
+        console.print("[yellow]No exact, native, inferred, or candidate offsets were present.[/yellow]")
 
 
 @app.command()

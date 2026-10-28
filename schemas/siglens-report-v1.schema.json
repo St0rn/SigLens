@@ -62,7 +62,27 @@
       },
       "additionalProperties": true
     },
-    "limitations": {"type": "array", "items": {"type": "string"}}
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "ghidra_locations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["classification", "file_offset", "file_offset_hex"],
+        "properties": {
+          "classification": {
+            "type": "string",
+            "enum": ["EXACT_MATCH", "NATIVE_ENGINE_OFFSET", "INFERRED_BOUNDARY", "CANDIDATE_REGION", "CONTEXT_DEPENDENT"]
+          },
+          "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+          "file_offset": {"type": "integer", "minimum": 0},
+          "file_offset_hex": {"type": "string"},
+          "rva": {"type": ["integer", "null"]},
+          "va": {"type": ["integer", "null"]},
+          "section": {"type": ["string", "null"]}
+        },
+        "additionalProperties": true
+      }
+    }
   },
   "additionalProperties": true
 }

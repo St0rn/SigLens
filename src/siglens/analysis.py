@@ -18,6 +18,7 @@ from .report import report_metadata
 from .strings import extract_strings
 from .utils import entropy, hashes
 from .yara_scan import scan as yara_scan
+from .ghidra import build_ghidra_locations
 
 
 class AnalysisCancelled(RuntimeError):
@@ -94,6 +95,7 @@ def analyze_artifact(
         "correlations": [],
         "component_scan": {},
         "window_scan": {},
+        "ghidra_locations": [],
         "script_analysis": {},
         "strings_summary": {
             "ascii_count_shown": len(strings["ascii"]),
@@ -144,6 +146,7 @@ def analyze_artifact(
     _check_cancel(cancel_event)
     _notify(progress, "Finalizing report", 95)
     report["refactor_hints"] = build_refactor_hints(report)
+    report["ghidra_locations"] = build_ghidra_locations(path, data, report)
     report["timings"] = {
         "total_ms": round((perf_counter() - started) * 1000, 3),
     }

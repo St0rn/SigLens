@@ -2,6 +2,10 @@
 
 ## Current build
 
+- Added SHA-256-verified Ghidra location exports with file offset, RVA, VA,
+  section, confidence, and strict evidence classification.
+- Added Ghidra locations to JSON/HTML reports and the desktop interface without
+  modifying or patching analyzed artifacts.
 - Added an optional dark desktop interface with dashboard, AV, AMSI, PE,
   detection-map, hex-viewer, and report tabs; analysis runs in a worker with
   cooperative cancellation.

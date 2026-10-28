@@ -89,6 +89,7 @@ class SigLensApp:
         self.pe = self._text_tab("PE Explorer")
         self.map_canvas = self._map_tab()
         self.hex_text = self._hex_tab()
+        self.ghidra = self._text_tab("Ghidra")
         self.reports = self._reports_tab()
 
         footer = self.ttk.Frame(self.root, padding=(10, 0, 10, 10))
@@ -238,6 +239,7 @@ class SigLensApp:
         self._set_text(self.summary, json.dumps(summary, indent=2, ensure_ascii=False))
         self._set_text(self.amsi, json.dumps(report.get("amsi", {}), indent=2, ensure_ascii=False))
         self._set_text(self.pe, json.dumps({"pe": report.get("pe"), "dissection": report.get("dissection")}, indent=2, ensure_ascii=False))
+        self._set_text(self.ghidra, json.dumps(report.get("ghidra_locations", []), indent=2, ensure_ascii=False))
         self._set_text(self.reports, json.dumps(report, indent=2, ensure_ascii=False, default=str))
         for item in self.av_tree.get_children():
             self.av_tree.delete(item)

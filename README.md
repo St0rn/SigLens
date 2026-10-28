@@ -183,6 +183,17 @@ controlled checkpoints. Conflicting repeated verdicts or an observed shorter
 `CONTEXT_DEPENDENT`; SigLens does not report a single inferred boundary in that
 case.
 
+Export verified navigation locations for Ghidra:
+
+```powershell
+.\dist\SigLens.exe ghidra-offsets C:\Samples\sample.exe .\reports\sample.json `
+  --output .\reports\sample-ghidra.csv
+```
+
+The export provides file offsets, RVA, VA, section, provenance, and confidence.
+See [`docs/ghidra-workflow.md`](docs/ghidra-workflow.md) for the distinction
+between exact, native, inferred, candidate, and context-dependent locations.
+
 ---
 
 ## `multi-scan` - multiple local security engines
