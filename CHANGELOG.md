@@ -2,6 +2,9 @@
 
 ## Current build
 
+- Isolated host-dependent Windows AMSI and Defender checks from the portable
+  test matrix, and report an unavailable hosted-runner AMSI provider as a
+  skipped integration condition rather than a product failure.
 - Added PE security-posture analysis for ASLR and usable relocations, DEP/NX,
   CFG, high-entropy VA, load configuration, entry-point placement, and section
   permissions.

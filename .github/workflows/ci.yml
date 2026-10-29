@@ -30,7 +30,7 @@ jobs:
         env:
           PYTHONPATH: src
           PYTHONDONTWRITEBYTECODE: "1"
-        run: python -m pytest -q
+        run: python -m pytest -q --ignore=tests/windows
       - name: Build standalone executable
         run: python -m PyInstaller --noconfirm --clean SigLens.spec
       - name: Smoke test standalone executable (Linux)
