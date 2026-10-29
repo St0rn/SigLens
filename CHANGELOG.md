@@ -2,6 +2,15 @@
 
 ## Current build
 
+- Added PE security-posture analysis for ASLR and usable relocations, DEP/NX,
+  CFG, high-entropy VA, load configuration, entry-point placement, and section
+  permissions.
+- Added Authenticode certificate-table bounds, CodeView/PDB identity, TLS
+  callbacks, import hash, compile-time normalization, and overlay metadata.
+- Added the `pe-security` command with mitigation, section-permission, and
+  evidence-backed finding tables plus optional JSON export.
+- Cross-build report comparison now tracks mitigation, Authenticode-presence,
+  import-hash, writable-executable-section, and PE-finding changes.
 - Added source attribution from verified report offsets to C/C++ native PDB
   lines, MSVC MAP symbols, and SHA-256-bound C# sequence-point maps.
 - Added bounded C/C++/C# declaration search with explicit attribution confidence

@@ -61,6 +61,28 @@ def _location_classes(report: dict) -> dict[str, int]:
     return dict(sorted(values.items()))
 
 
+def _pe_security(report: dict) -> dict:
+    value = report.get("pe", {}).get("security", {})
+    security = value if isinstance(value, dict) else {}
+    mitigations = security.get("mitigations", {})
+    return {
+        "mitigations": {
+            str(name): bool(item.get("enabled"))
+            for name, item in mitigations.items()
+            if isinstance(item, dict)
+        },
+        "aslr_effective": security.get("relocations", {}).get("aslr_effective"),
+        "writable_executable": sorted(security.get("section_review", {}).get("writable_executable", [])),
+        "authenticode_present": security.get("authenticode", {}).get("present"),
+        "imphash": security.get("imphash"),
+        "finding_ids": sorted(
+            str(item.get("id"))
+            for item in security.get("findings", [])
+            if isinstance(item, dict) and item.get("id")
+        ),
+    }
+
+
 def _status(report: dict, key: str) -> str | None:
     value = report.get(key, {})
     if not isinstance(value, dict):
@@ -101,6 +123,8 @@ def compare_reports(old: dict, new: dict) -> dict:
     new_imports = _imports(new)
     old_locations = _location_classes(old)
     new_locations = _location_classes(new)
+    old_pe_security = _pe_security(old)
+    new_pe_security = _pe_security(new)
     old_amsi = _status(old, "amsi")
     new_amsi = _status(new, "amsi")
     same_engine_set = set(old_engines) == set(new_engines)
@@ -124,6 +148,8 @@ def compare_reports(old: dict, new: dict) -> dict:
     change_count += len(old_imports ^ new_imports)
     change_count += int(old_amsi != new_amsi)
     change_count += int(old_locations != new_locations)
+    pe_security_changed = old_pe_security != new_pe_security
+    change_count += int(pe_security_changed)
 
     return {
         **report_metadata("comparison"),
@@ -163,6 +189,19 @@ def compare_reports(old: dict, new: dict) -> dict:
             "old_by_classification": old_locations,
             "new_by_classification": new_locations,
             "changed": old_locations != new_locations,
+        },
+        "pe_security": {
+            "old": old_pe_security,
+            "new": new_pe_security,
+            "changed": pe_security_changed,
+            "added_writable_executable_sections": sorted(
+                set(new_pe_security["writable_executable"]) - set(old_pe_security["writable_executable"])
+            ),
+            "removed_writable_executable_sections": sorted(
+                set(old_pe_security["writable_executable"]) - set(new_pe_security["writable_executable"])
+            ),
+            "added_findings": sorted(set(new_pe_security["finding_ids"]) - set(old_pe_security["finding_ids"])),
+            "removed_findings": sorted(set(old_pe_security["finding_ids"]) - set(new_pe_security["finding_ids"])),
         },
         "limitations": [
             "Verdict transitions are comparable only when engine versions, policies, definitions, and host conditions are controlled.",

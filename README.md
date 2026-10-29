@@ -66,6 +66,10 @@ flowchart LR
 
 - SHA-256, SHA-1, MD5, size, entropy, ASCII, and UTF-16LE strings.
 - PE headers, sections, imports, exports, resources, overlay, and section hashes.
+- PE security posture for ASLR, usable relocations, DEP/NX, CFG, high-entropy VA,
+  load configuration, entry-point permissions, and writable-executable sections.
+- Authenticode certificate-table metadata, CodeView/PDB identity, TLS callbacks,
+  compile timestamp, import hash, section permissions, and overlay boundaries.
 - IOC extraction for URLs, IPv4 addresses, domains, and Windows paths.
 - Optional capa capability analysis.
 - Binary comparison with changed-range reporting.
@@ -143,6 +147,20 @@ siglens scan C:\Samples\sample.exe `
 
 Reports are written to `reports\` as JSON and HTML.
 
+### Review PE security posture
+
+```powershell
+siglens pe-security C:\Samples\sample.exe
+siglens pe-security C:\Samples\sample.exe --output .\reports\sample-pe.json
+```
+
+The command reports image mitigations and the evidence needed to interpret
+them, including whether ASLR has usable relocations. It highlights executable
+and writable sections, entry points outside executable sections, malformed
+certificate-table bounds, TLS callbacks, debug/PDB records, and overlay data.
+Certificate-table presence is metadata only; SigLens does not claim that the
+signer or trust chain was verified.
+
 ### Launch the desktop interface
 
 ```powershell
@@ -214,10 +232,11 @@ siglens compare-reports .\reports\baseline.json .\reports\candidate.json `
 ```
 
 The comparison records engine verdict and signature transitions, AMSI changes,
-added or removed YARA rules, PE import changes, and Ghidra-location counts by
-classification. Results describe observed lab evidence; they do not label a
-build as evasive or generate transformations. SigLens warns when tool versions,
-engine sets, or AMSI coverage differ between the two reports.
+added or removed YARA rules, PE import and security-posture changes, and
+Ghidra-location counts by classification. Results describe observed lab
+evidence; they do not label a build as evasive or generate transformations.
+SigLens warns when tool versions, engine sets, or AMSI coverage differ between
+the two reports.
 
 Export the candidate evidence to SARIF 2.1.0 for ingestion by CI and analysis
 platforms:
@@ -261,6 +280,7 @@ with related binary and source locations. See the
 | `component-scan` | Scan fixed PE sections and the overlay |
 | `narrow` | Bound a reproducible AV prefix-detection transition |
 | `dissect` | Inspect PE sections, resources, hashes, entropy, and overlay |
+| `pe-security` | Review PE mitigations, permissions, signature metadata, TLS, and PDB data |
 | `inspect-offset` | Map an offset and display its local bytes and strings |
 | `locate` | Correlate an offset with PE functions, PDBs, and source |
 | `ghidra-offsets` | Export verified analyst locations and bookmark scripts |
@@ -288,6 +308,9 @@ siglens locate C:\Samples\sample.exe 0x18A20 --symbol-path .\symbols
 
 # Inspect PE structure
 siglens dissect C:\Samples\sample.exe
+
+# Review PE mitigations and anomalous permissions
+siglens pe-security C:\Samples\sample.exe --output .\reports\sample-pe.json
 
 # Compare two builds
 siglens compare .\old.exe .\new.exe

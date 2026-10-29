@@ -40,6 +40,57 @@
       },
       "additionalProperties": true
     },
+    "pe": {
+      "type": "object",
+      "properties": {
+        "is_pe": {"type": "boolean"},
+        "timestamp_utc": {"type": ["string", "null"], "format": "date-time"},
+        "security": {
+          "type": "object",
+          "properties": {
+            "architecture": {"type": "string"},
+            "is_64bit": {"type": "boolean"},
+            "is_dll": {"type": "boolean"},
+            "mitigations": {"type": "object"},
+            "relocations": {"type": "object"},
+            "load_config": {"type": "object"},
+            "entry_point": {"type": "object"},
+            "section_review": {"type": "object"},
+            "authenticode": {"type": "object"},
+            "debug": {"type": "array"},
+            "tls": {"type": "object"},
+            "overlay": {"type": "object"},
+            "imphash": {"type": ["string", "null"]},
+            "findings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "severity", "title", "evidence"],
+                "properties": {
+                  "id": {"type": "string", "pattern": "^PE[0-9]{3}$"},
+                  "severity": {"enum": ["high", "medium", "low", "info"]},
+                  "title": {"type": "string"},
+                  "evidence": {"type": "object"}
+                },
+                "additionalProperties": true
+              }
+            },
+            "summary": {
+              "type": "object",
+              "properties": {
+                "high": {"type": "integer", "minimum": 0},
+                "medium": {"type": "integer", "minimum": 0},
+                "low": {"type": "integer", "minimum": 0},
+                "info": {"type": "integer", "minimum": 0}
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
     "multiav": {
       "type": "object",
       "properties": {

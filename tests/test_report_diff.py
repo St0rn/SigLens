@@ -27,10 +27,20 @@ def _report(data: bytes, *, detected: bool) -> dict:
         }]},
         "amsi": {"status": "detected" if detected else "clean"},
         "yara": {"matches": [{"rule": "NewRule"}]} if detected else {"matches": []},
-        "pe": {"imports": [{
-            "dll": "KERNEL32.dll",
-            "functions": functions,
-        }]},
+        "pe": {
+            "imports": [{
+                "dll": "KERNEL32.dll",
+                "functions": functions,
+            }],
+            "security": {
+                "mitigations": {"aslr": {"enabled": True}, "cfg": {"enabled": not detected}},
+                "relocations": {"aslr_effective": True},
+                "section_review": {"writable_executable": [".extra"] if detected else []},
+                "authenticode": {"present": not detected},
+                "imphash": "new" if detected else "old",
+                "findings": [{"id": "PE001"}] if detected else [],
+            },
+        },
         "ghidra_locations": ([{
             "classification": "EXACT_MATCH",
             "file_offset": 0,
@@ -51,6 +61,9 @@ def test_compares_detection_evidence_and_validates_schema():
     assert comparison["yara"]["added_rules"] == ["NewRule"]
     assert comparison["imports"]["added"] == ["KERNEL32.dll!VirtualAlloc"]
     assert comparison["location_changes"]["new_by_classification"] == {"EXACT_MATCH": 1}
+    assert comparison["pe_security"]["changed"] is True
+    assert comparison["pe_security"]["added_writable_executable_sections"] == [".extra"]
+    assert comparison["pe_security"]["added_findings"] == ["PE001"]
     assert comparison["comparability"]["same_engine_set"] is True
     assert comparison["comparability"]["warnings"] == []
 

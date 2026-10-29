@@ -219,6 +219,15 @@ def scan(
     table.add_row("Size", str(report["file"]["hashes"]["size"]))
     table.add_row("Entropy", str(report["file"]["entropy"]))
     table.add_row("PE", str(pe.get("is_pe", False)))
+    if pe.get("is_pe"):
+        security_summary = pe.get("security", {}).get("summary", {})
+        table.add_row(
+            "PE findings",
+            f"{security_summary.get('high', 0)} high / "
+            f"{security_summary.get('medium', 0)} medium / "
+            f"{security_summary.get('low', 0)} low / "
+            f"{security_summary.get('info', 0)} info",
+        )
     table.add_row("YARA matches", str(len(report["yara"].get("matches", []))))
     table.add_row("Correlated offsets", str(len(report["correlations"])))
     if amsi:
@@ -1262,6 +1271,110 @@ def dissect_command(
         )
     console.print(table)
     console.print(f"Resources: {len(result.get('resources', []))}")
+
+
+@app.command("pe-security")
+def pe_security_command(
+    file: Path = typer.Argument(..., dir_okay=False),
+    output: Path | None = typer.Option(None, "--output", "-o", help="Optional JSON output path"),
+    json_output: bool = typer.Option(False, "--json", help="Print the complete result as JSON"),
+):
+    """Review PE mitigations, signature metadata, debug data, TLS and section permissions."""
+    file, data, _ = _open_input_or_exit(file)
+    result = analyze_pe(file, data)
+    if not result.get("is_pe"):
+        console.print(f"[yellow]Input is not a PE file:[/yellow] {result.get('error', 'unknown format')}")
+        raise typer.Exit(code=0)
+
+    security = result["security"]
+    console.print(Panel(
+        "\n".join([
+            f"Architecture  : {security.get('architecture')}",
+            f"Image type    : {'DLL' if security.get('is_dll') else 'EXE'}",
+            f"Image base    : {result.get('image_base')}",
+            f"Entry point   : {security.get('entry_point', {}).get('rva_hex')} "
+            f"({security.get('entry_point', {}).get('section') or 'unmapped'})",
+            f"Compile time  : {result.get('timestamp_utc') or result.get('timestamp')}",
+            f"Import hash   : {security.get('imphash') or '-'}",
+        ]),
+        title=f"[cyan]{__product__} - PE Security Posture[/cyan]",
+    ))
+
+    mitigation_table = Table(title="Image mitigations")
+    mitigation_table.add_column("Mitigation")
+    mitigation_table.add_column("State")
+    mitigation_table.add_column("Evidence")
+    for name, item in security.get("mitigations", {}).items():
+        enabled = bool(item.get("enabled"))
+        if name == "dep" and item.get("effective") and not enabled:
+            state = "[green]OS ENFORCED[/green]"
+        elif item.get("applicable") is False:
+            state = "[dim]N/A[/dim]"
+        else:
+            state = "[green]ENABLED[/green]" if enabled else "[yellow]DISABLED[/yellow]"
+        mitigation_table.add_row(
+            name.replace("_", " ").upper(),
+            state,
+            item.get("flag", "-"),
+        )
+    relocations = security.get("relocations", {})
+    mitigation_table.add_row(
+        "USABLE RELOCATIONS",
+        "[green]YES[/green]" if relocations.get("aslr_effective") else "[yellow]NO[/yellow]",
+        f"directory={relocations.get('directory_present')} stripped={relocations.get('stripped')}",
+    )
+    console.print(mitigation_table)
+
+    section_table = Table(title="Section permissions")
+    section_table.add_column("Section")
+    section_table.add_column("R")
+    section_table.add_column("W")
+    section_table.add_column("X")
+    section_table.add_column("Entropy")
+    section_table.add_column("Raw / virtual")
+    for section in result.get("sections", []):
+        permissions = section.get("permissions", {})
+        section_table.add_row(
+            section.get("name", ""),
+            "Y" if permissions.get("read") else "-",
+            "[yellow]Y[/yellow]" if permissions.get("write") else "-",
+            "[red]Y[/red]" if permissions.get("execute") else "-",
+            str(section.get("entropy")),
+            f"{section.get('raw_size')} / {section.get('virtual_size')}",
+        )
+    console.print(section_table)
+
+    signature = security.get("authenticode", {})
+    console.print(
+        f"Certificate table: {'present' if signature.get('present') else 'absent'}; "
+        f"trust status: {signature.get('trust_status', 'not_checked')} | "
+        f"Debug entries: {len(security.get('debug', []))} | "
+        f"TLS callbacks: {len(security.get('tls', {}).get('callbacks', []))} | "
+        f"Overlay: {security.get('overlay', {}).get('size', 0)} bytes"
+    )
+
+    findings = security.get("findings", [])
+    if findings:
+        finding_table = Table(title="Review findings")
+        finding_table.add_column("ID")
+        finding_table.add_column("Severity")
+        finding_table.add_column("Finding")
+        finding_table.add_column("Evidence")
+        for finding in findings:
+            finding_table.add_row(
+                finding.get("id", ""),
+                finding.get("severity", "").upper(),
+                finding.get("title", ""),
+                json.dumps(finding.get("evidence", {}), ensure_ascii=False, default=str),
+            )
+        console.print(finding_table)
+
+    if output:
+        output = output.expanduser().resolve()
+        save_json_document(result, output)
+        console.print(f"[green]JSON:[/green] {output}")
+    if json_output:
+        console.print_json(data=result)
 
 
 @app.command("locate")
